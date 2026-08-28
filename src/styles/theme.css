@@ -37,6 +37,26 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
+
+  /* Dark neutrals informed by GitHub Primer Dark, tinted toward the shell's
+     deep-navy glass. Text ramps stay blue-gray so panels and copy share one
+     temperature; accents brighten just enough for small-type contrast. */
+  --zup-text-1: #e7eefb;
+  --zup-text-2: #a9b8ce;
+  --zup-text-3: #77859c;
+
+  /* blue-500 stays (tint backgrounds); the 600 ramp is a text accent and
+     must stay readable on navy — lift it toward sky. */
+  --zup-blue-600: #7fb3ff;
+
+  /* Semantic: Primer-dark scale. */
+  --zup-danger: #f47067;
+  --zup-warn: #e0a93f;
+  --zup-ok: #3fb950;
+
+  /* Series: brighten the two darkest lines for the navy background. */
+  --zup-series-input: #9cc4f8;
+  --zup-series-output: #5c9dff;
 }
 
 /* ---- SegmentedControl restyle (light) --------------------------------------

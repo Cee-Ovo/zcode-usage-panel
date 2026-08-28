@@ -380,6 +380,19 @@ body {
     0 0 0 1px color-mix(in srgb, #ffffff 55%, transparent);
 }
 
+:root[data-theme="dark"] .overlay-card {
+  /* 深色下玻璃面更实,保证弹层文字可读;描边换白系高光。 */
+  background:
+    linear-gradient(
+      180deg,
+      rgb(30 44 70 / 0.92),
+      rgb(22 33 54 / 0.88)
+    );
+  box-shadow:
+    0 24px 56px -22px rgb(0 0 0 / 0.55),
+    0 0 0 1px rgb(255 255 255 / 0.08);
+}
+
 @keyframes zup-fade {
   from {
     opacity: 0;
@@ -615,6 +628,11 @@ body {
   border: 1px solid color-mix(in srgb, var(--zup-blue-500) 18%, transparent);
   border-radius: 12px;
   background: color-mix(in srgb, var(--zup-ice-2) 45%, transparent);
+}
+
+:root[data-theme="dark"] .price-override {
+  border-color: rgb(127 179 255 / 0.22);
+  background: rgb(47 123 246 / 0.10);
 }
 
 .override-grid {

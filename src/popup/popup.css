@@ -54,6 +54,13 @@ html,
   color: transparent;
 }
 
+:root[data-theme="dark"] .popup-total {
+  /* 深色下起止色整体提亮,避免 #1f66e0 沉进海军蓝底。 */
+  background: linear-gradient(120deg, #7fb3ff, #35c5e8);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
 .popup-total small {
   font-size: 13px;
   font-weight: 500;

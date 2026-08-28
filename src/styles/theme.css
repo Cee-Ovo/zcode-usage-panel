@@ -1,0 +1,110 @@
+/* ==========================================================================
+   ZCode Usage Panel — theme layer on top of open-glass-ui.
+   Light "ice glass" is the default; dark mode mirrors the token set.
+   ========================================================================== */
+
+:root {
+  /* Brand ramp — white / ice / very light blue */
+  --zup-ice-1: #f6fbff;
+  --zup-ice-2: #eaf6ff;
+  --zup-ice-3: #d9eeff;
+  --zup-blue-500: #2f7bf6;
+  --zup-blue-600: #1f66e0;
+  --zup-cyan-400: #35c5e8;
+  --zup-violet-400: #8f7bf5;
+  --zup-text-1: #10233c;
+  --zup-text-2: #45586f;
+  --zup-text-3: #7d8fa5;
+  --zup-danger: #e5484d;
+  --zup-warn: #f5a524;
+  --zup-ok: #29a383;
+
+  /* Series colors for charts */
+  --zup-series-input: #7fb5f2;
+  --zup-series-output: #2f7bf6;
+  --zup-series-reasoning: #8f7bf5;
+  --zup-series-cache: #35c5e8;
+}
+
+/* ---- open-glass-ui token overrides (light default) ----------------------- */
+:root,
+:root[data-theme="light"] {
+  --ogui-radius: 14px;
+  --ogui-border-radius: 14px;
+  --ogui-focus-ring: 0 0 0 3px color-mix(in srgb, var(--zup-blue-500) 28%, transparent);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* ---- SegmentedControl restyle (light) --------------------------------------
+   The library ships a dark-glass pill (hard-coded black-alpha track +
+   black drop shadow on the active item), which reads as a dark smudge on
+   the light ice-glass page. Reroute it to the light token set; dark mode
+   keeps the library default. */
+:root:not([data-theme="dark"]) .ogui-segments {
+  background: rgb(255 255 255 / 0.58);
+  border-color: rgb(47 123 246 / 0.16);
+  box-shadow: inset 0 1px 2px rgb(16 35 60 / 0.05);
+}
+
+:root:not([data-theme="dark"]) .ogui-segments__item {
+  color: var(--zup-text-2);
+  --ogui-control-hover: rgb(47 123 246 / 0.08);
+}
+
+:root:not([data-theme="dark"]) .ogui-segments__item[aria-pressed="true"] {
+  color: var(--zup-blue-600);
+  background: rgb(255 255 255 / 0.95);
+  box-shadow:
+    inset 0 1px rgb(255 255 255 / 0.9),
+    0 2px 7px rgb(47 123 246 / 0.16);
+}
+
+/* Same dark-glass default on the switch track (black-alpha base, near-white
+   accent when checked) — reroute to light neutrals + brand blue. */
+:root:not([data-theme="dark"]) .ogui-switch__track {
+  background: rgb(16 35 60 / 0.12);
+  box-shadow: inset 0 1px 2px rgb(16 35 60 / 0.10);
+}
+
+:root:not([data-theme="dark"]) .ogui-switch input:checked ~ .ogui-switch__track {
+  background: var(--zup-blue-500);
+}
+
+:root:not([data-theme="dark"]) .ogui-switch input:checked ~ .ogui-switch__track .ogui-switch__thumb {
+  background: #fff;
+}
+
+
+
+/* ---- ambient page background ----------------------------------------------
+   Subtle blue/violet/cyan washes over a near-white base. Kept fixed so the
+   frosted panels have something to refract. */
+.zup-shell {
+  min-height: 100vh;
+  background:
+    radial-gradient(1100px 520px at -8% -12%, rgba(127, 181, 242, 0.20), transparent 60%),
+    radial-gradient(900px 480px at 108% -6%, rgba(143, 123, 245, 0.16), transparent 55%),
+    radial-gradient(1000px 620px at 50% 118%, rgba(53, 197, 232, 0.16), transparent 60%),
+    linear-gradient(180deg, #fbfdff 0%, #f3f8fe 100%);
+}
+
+:root[data-theme="dark"] .zup-shell {
+  background:
+    radial-gradient(1100px 520px at -8% -12%, rgba(47, 123, 246, 0.16), transparent 60%),
+    radial-gradient(900px 480px at 108% -6%, rgba(143, 123, 245, 0.12), transparent 55%),
+    radial-gradient(1000px 620px at 50% 118%, rgba(53, 197, 232, 0.10), transparent 60%),
+    linear-gradient(180deg, #0d1626 0%, #0a121f 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

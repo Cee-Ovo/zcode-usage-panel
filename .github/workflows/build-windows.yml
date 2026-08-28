@@ -1,0 +1,81 @@
+name: build-windows
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write # attach release artifacts on tag builds
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: npm install --no-fund --no-audit
+
+      - name: Generate icon set (pure-Node PNG encoder + tauri icon)
+        run: node scripts/ensure-icons.mjs
+
+      - name: Frontend unit tests (vitest)
+        run: npm test
+
+      - name: Build frontend (tsc + vite, produces dist/)
+        run: npm run build
+
+      - name: Rust unit tests (data layer)
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Data-layer performance benchmark (1M records / 10k sessions)
+        run: cargo run --release --manifest-path src-tauri/Cargo.toml --example bench
+
+      - name: Build Windows NSIS installer
+        run: npx tauri build
+
+      - name: Normalize artifact names
+        shell: pwsh
+        run: |
+          $v = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $setup = Get-ChildItem "src-tauri/target/release/bundle/nsis/*-setup.exe" | Select-Object -First 1
+          Copy-Item $setup.FullName "ZCode-Usage-Panel-Setup-$v.exe"
+          # Portable = standalone exe + notice, zipped
+          New-Item -ItemType Directory -Force -Path portable | Out-Null
+          Copy-Item "src-tauri/target/release/zcode-usage-panel.exe" "portable/ZCode-Usage-Panel.exe"
+          Copy-Item scripts/README-PORTABLE.txt portable/README.txt
+          Compress-Archive -Path portable/* -DestinationPath "ZCode-Usage-Panel-Portable-$v.zip"
+          "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            ZCode-Usage-Panel-Setup-*.exe
+            ZCode-Usage-Panel-Portable-*.zip
+
+      - name: Attach to GitHub Release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ZCode-Usage-Panel-Setup-*.exe
+            ZCode-Usage-Panel-Portable-*.zip
+          generate_release_notes: true

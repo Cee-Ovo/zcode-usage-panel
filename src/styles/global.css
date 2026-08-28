@@ -1,0 +1,635 @@
+/* App-level layout & component styling (complements open-glass-ui). */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden; /* the OS window is the viewport */
+}
+
+body {
+  font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI",
+    "PingFang SC", system-ui, sans-serif;
+  color: var(--zup-text-1);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+:root[data-theme="dark"] body {
+  color: #e7eefb;
+}
+
+/* ------------------------------------------------------------------ frame */
+
+.zup-frame {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.zup-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 6px 0 14px;
+  flex: none;
+  -webkit-app-region: no-drag;
+}
+
+.zup-titlebar .title {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--zup-text-2);
+}
+
+.zup-titlebar .spacer {
+  flex: 1;
+}
+
+.zup-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.zup-nav {
+  width: 168px;
+  flex: none;
+  padding: 6px 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.zup-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: var(--zup-text-2);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 180ms ease, color 180ms ease;
+  text-align: left;
+}
+
+.zup-nav-item:hover {
+  background: color-mix(in srgb, var(--zup-blue-500) 9%, transparent);
+  color: var(--zup-text-1);
+}
+
+.zup-nav-item.active {
+  background: color-mix(in srgb, var(--zup-blue-500) 15%, transparent);
+  color: var(--zup-blue-600);
+  font-weight: 600;
+}
+
+:root[data-theme="dark"] .zup-nav-item.active {
+  color: #9cc3ff;
+}
+
+.zup-nav .footnote {
+  margin-top: auto;
+  font-size: 10.5px;
+  color: var(--zup-text-3);
+  padding: 8px 6px;
+  line-height: 1.5;
+}
+
+/* Library switch forces min-width 12rem — far too wide for the sidebar
+   footnote; compact it so it sits inline beside the "实时" label. */
+.zup-nav .footnote .ogui-switch {
+  min-width: 0;
+}
+
+.zup-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 16px 20px 10px;
+  min-width: 0;
+}
+
+.zup-content::-webkit-scrollbar {
+  width: 10px;
+}
+.zup-content::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--zup-text-3) 30%, transparent);
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+/* ------------------------------------------------------------------ cards */
+
+.zup-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.metrics-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 760px) {
+  .metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.metric-card {
+  padding: 13px 15px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, #ffffff 65%, color-mix(in srgb, var(--zup-blue-500) 12%, transparent));
+  background: color-mix(in srgb, #ffffff 62%, transparent);
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+  box-shadow:
+    0 1px 2px rgba(16, 35, 60, 0.05),
+    0 12px 28px -14px rgba(16, 35, 60, 0.18);
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+:root[data-theme="dark"] .metric-card {
+  background: color-mix(in srgb, #16233a 55%, transparent);
+  border-color: rgba(255, 255, 255, 0.09);
+}
+
+.metric-card .label {
+  font-size: 11px;
+  color: var(--zup-text-3);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.metric-card .value {
+  font-size: 21px;
+  font-weight: 650;
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.metric-card .sub {
+  font-size: 10.5px;
+  color: var(--zup-text-3);
+  margin-top: 2px;
+}
+
+.panel {
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, #ffffff 60%, color-mix(in srgb, var(--zup-blue-500) 10%, transparent));
+  background: color-mix(in srgb, #ffffff 55%, transparent);
+  backdrop-filter: blur(22px) saturate(1.3);
+  -webkit-backdrop-filter: blur(22px) saturate(1.3);
+  box-shadow: 0 14px 34px -18px rgba(16, 35, 60, 0.22);
+  padding: 14px 16px;
+}
+
+:root[data-theme="dark"] .panel {
+  background: color-mix(in srgb, #141f33 52%, transparent);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.panel-title {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--zup-text-2);
+  margin: 0 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-title .right {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-weight: 500;
+}
+
+/* ------------------------------------------------------------------ rows */
+
+.model-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.4fr) repeat(6, minmax(56px, 1fr)) 64px 84px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 160ms ease;
+  font-variant-numeric: tabular-nums;
+}
+
+.model-row:hover {
+  background: color-mix(in srgb, var(--zup-blue-500) 8%, transparent);
+}
+
+.model-row .name {
+  font-weight: 600;
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-row .num {
+  text-align: right;
+  color: var(--zup-text-2);
+  font-size: 12px;
+}
+
+.model-head {
+  font-size: 10.5px;
+  color: var(--zup-text-3);
+  text-transform: none;
+}
+
+.share-track {
+  height: 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--zup-text-3) 18%, transparent);
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.share-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--zup-blue-500), var(--zup-cyan-400));
+  transition: width 220ms ease;
+}
+
+.session-row {
+  display: grid;
+  grid-template-columns: 1.3fr 1.6fr 1.2fr repeat(6, minmax(60px, 1fr)) 70px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 160ms ease;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+.session-row:hover {
+  background: color-mix(in srgb, var(--zup-blue-500) 8%, transparent);
+}
+
+.session-row .num,
+.session-row .time {
+  text-align: right;
+  color: var(--zup-text-2);
+}
+
+.table-head {
+  font-size: 10.5px;
+  color: var(--zup-text-3);
+  padding: 0 10px 6px;
+}
+
+.muted {
+  color: var(--zup-text-3);
+}
+
+.unavailable {
+  color: var(--zup-text-3);
+  font-style: italic;
+}
+
+/* ------------------------------------------------------------------ misc */
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--zup-ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--zup-ok) 20%, transparent);
+}
+
+.status-dot.paused {
+  background: var(--zup-warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--zup-warn) 20%, transparent);
+}
+
+.status-dot.error {
+  background: var(--zup-danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--zup-danger) 20%, transparent);
+}
+
+.badge-note {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--zup-warn) 45%, transparent);
+  color: var(--zup-warn);
+  background: color-mix(in srgb, var(--zup-warn) 10%, transparent);
+}
+
+.overlay-backdrop {
+  position: fixed;
+  inset: 0;
+  /* 浅色磨砂:与 ice-blue 主题同源的半透明冰蓝纱 + 较强模糊, */
+  /* 弹层后面的内容被柔化而不是被压暗。 */
+  background:
+    linear-gradient(
+      160deg,
+      color-mix(in srgb, #eef5fc 62%, transparent),
+      color-mix(in srgb, #e3edf8 55%, transparent)
+    );
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+  animation: zup-fade 180ms ease;
+}
+
+:root[data-theme="dark"] .overlay-backdrop {
+  background: color-mix(in srgb, #0b1524 48%, transparent);
+}
+
+.overlay-card {
+  width: min(860px, 92vw);
+  max-height: 86vh;
+  overflow-y: auto;
+  /* 浅色磨砂背景上垫一层同色渐隐,保证卡片与遮罩的层次分离。 */
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #ffffff 78%, transparent),
+      color-mix(in srgb, #ffffff 62%, transparent)
+    );
+  box-shadow:
+    0 24px 56px -22px rgba(16, 35, 60, 0.3),
+    0 0 0 1px color-mix(in srgb, #ffffff 55%, transparent);
+}
+
+@keyframes zup-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes zup-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise {
+  animation: zup-rise 200ms ease;
+}
+
+.empty-state {
+  padding: 42px 20px;
+  text-align: center;
+  color: var(--zup-text-3);
+  line-height: 1.8;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  font-size: 12px;
+}
+
+.kv .k {
+  color: var(--zup-text-3);
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 7px 2px;
+}
+
+.switch-row .desc {
+  font-size: 11px;
+  color: var(--zup-text-3);
+  margin-top: 1px;
+}
+
+.settings-section {
+  margin-bottom: 18px;
+}
+
+.alert-chip {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--zup-warn) 8%, transparent);
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.alert-chip.critical {
+  background: color-mix(in srgb, var(--zup-danger) 9%, transparent);
+}
+
+.model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  font-size: 11px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--zup-text-3) 30%, transparent);
+  cursor: pointer;
+  background: transparent;
+  color: var(--zup-text-2);
+  transition: all 160ms ease;
+}
+
+.model-chip.on {
+  border-color: color-mix(in srgb, var(--zup-blue-500) 55%, transparent);
+  background: color-mix(in srgb, var(--zup-blue-500) 12%, transparent);
+  color: var(--zup-blue-600);
+}
+
+.model-chip .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 3px;
+}
+
+/* ------------------------------------------------------------- cost (API) */
+
+/* unpriced badge in model rows (muted, non-interactive color) */
+.cost-unknown {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--zup-text-3) 32%, transparent);
+  color: var(--zup-text-3);
+  background: color-mix(in srgb, var(--zup-text-3) 8%, transparent);
+  white-space: nowrap;
+}
+
+/* cost-detail modal line table */
+.cost-lines {
+  display: flex;
+  flex-direction: column;
+}
+
+.cost-line {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.4fr) repeat(3, minmax(64px, 1fr));
+  gap: 8px;
+  align-items: center;
+  padding: 7px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cost-line:nth-child(odd) {
+  background: color-mix(in srgb, var(--zup-text-3) 6%, transparent);
+}
+
+.cost-line .num {
+  text-align: right;
+  color: var(--zup-text-2);
+}
+
+.cost-head {
+  font-size: 10.5px;
+  color: var(--zup-text-3);
+  background: transparent !important;
+}
+
+.cost-notes {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--zup-text-3);
+  font-size: 10.5px;
+  line-height: 1.6;
+}
+
+.cost-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--zup-blue-500) 10%, transparent);
+  font-weight: 650;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cost-modal {
+  width: min(680px, 92vw);
+}
+
+/* settings price table */
+.price-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.7fr) minmax(78px, 0.9fr) repeat(6, minmax(58px, 1fr)) 58px 52px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 160ms ease;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+.price-row:hover {
+  background: color-mix(in srgb, var(--zup-blue-500) 8%, transparent);
+}
+
+.price-row .num {
+  text-align: right;
+  color: var(--zup-text-2);
+}
+
+.price-head {
+  font-size: 10.5px;
+  color: var(--zup-text-3);
+  cursor: default;
+}
+
+.price-row .name {
+  font-weight: 600;
+  font-size: 12.5px;
+}
+
+.price-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  line-height: 1.5;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+
+.price-badge.promo {
+  color: var(--zup-warn);
+  border: 1px solid color-mix(in srgb, var(--zup-warn) 45%, transparent);
+  background: color-mix(in srgb, var(--zup-warn) 10%, transparent);
+}
+
+.price-badge.ov {
+  color: var(--zup-blue-600);
+  border: 1px solid color-mix(in srgb, var(--zup-blue-500) 45%, transparent);
+  background: color-mix(in srgb, var(--zup-blue-500) 10%, transparent);
+}
+
+.price-override {
+  padding: 10px 12px;
+  margin: 2px 0 8px;
+  border: 1px solid color-mix(in srgb, var(--zup-blue-500) 18%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--zup-ice-2) 45%, transparent);
+}
+
+.override-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 6px;
+}
+
+@media (max-width: 900px) {
+  .override-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.override-field.wide {
+  grid-column: span 2;
+}

@@ -1,0 +1,119 @@
+/* Tray popup window styles — compact glass card. */
+
+body,
+html,
+#root {
+  height: 100%;
+}
+
+.popup-card {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 16px 12px;
+  border-radius: 16px;
+  background:
+    radial-gradient(600px 300px at -10% -20%, rgba(127, 181, 242, 0.25), transparent 60%),
+    radial-gradient(500px 300px at 110% 120%, rgba(53, 197, 232, 0.18), transparent 60%),
+    color-mix(in srgb, #ffffff 78%, transparent);
+  backdrop-filter: blur(26px) saturate(1.4);
+  -webkit-backdrop-filter: blur(26px) saturate(1.4);
+  border: 1px solid color-mix(in srgb, #ffffff 70%, rgba(47, 123, 246, 0.12));
+  box-shadow: 0 24px 60px -22px rgba(16, 35, 60, 0.4);
+}
+
+:root[data-theme="dark"] .popup-card {
+  background:
+    radial-gradient(600px 300px at -10% -20%, rgba(47, 123, 246, 0.2), transparent 60%),
+    color-mix(in srgb, #101a2c 82%, transparent);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.popup-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.popup-title {
+  font-size: 11px;
+  color: var(--zup-text-3);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.popup-total {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(120deg, #1f66e0, #35c5e8);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.popup-total small {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--zup-text-3);
+  -webkit-text-fill-color: var(--zup-text-3);
+}
+
+.popup-sub {
+  font-size: 10.5px;
+  color: var(--zup-text-3);
+  margin-bottom: 10px;
+}
+
+.popup-model {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 6px;
+  border-radius: 12px;
+  transition: background 160ms ease;
+}
+
+.popup-model:hover {
+  background: color-mix(in srgb, var(--zup-blue-500) 8%, transparent);
+}
+
+.popup-model .rank {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--zup-blue-500) 16%, transparent);
+  color: var(--zup-blue-600);
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.popup-model .m-name {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.popup-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--zup-text-3) 18%, transparent);
+  font-size: 11px;
+  color: var(--zup-text-2);
+}
+
+.popup-foot + .popup-foot {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: none;
+}

@@ -1,6 +1,6 @@
 # ZCode Usage Panel
 
-实时监控本机 **ZCode Harness** 模型 Token 消耗与等价 API 花费的 Windows 桌面应用:仪表盘、系统托盘、QQ 式桌面边缘吸附小窗。浅色 Liquid Glass 设计(基于 [open-glass-ui](https://github.com/moekoelueker/open-glass-ui)),长期驻留、空闲近零开销。
+本地 **AI Coding Usage Dashboard**:ZCode Token 实时统计与等价 API 花费之外,同时管理 **OpenAI Codex 套餐额度、Antigravity/反重力额度、火山引擎 Token 包**,并提供 **ZCode 一键启动/唤醒**。Windows 桌面应用:仪表盘、系统托盘、QQ 式桌面边缘吸附小窗。浅色 Liquid Glass 设计(基于 [open-glass-ui](https://github.com/moekoelueker/open-glass-ui)),长期驻留、空闲近零开销。
 
 ![tech](https://img.shields.io/badge/Tauri%202-React%2018-TypeScript-blue) ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -39,6 +39,11 @@
 | **导出** | CSV/JSON × 时间范围/模型/Sessions/原始记录,系统保存对话框,导出位置完全由用户决定 |
 | **价格设置页** | 查看/覆盖任意模型单价(峰/谷、缓存、单位),支持一键拉取远程价格表、恢复内置默认;Dashboard 成本汇总与模型成本明细弹窗同源 |
 | **单实例** | 二次启动只唤出已有窗口,不产生第二个监控进程 |
+| **服务额度** | 统一 Provider 框架:Codex(官方 rate_limits:5 小时窗口/周额度/credits,本地离线读取)、Antigravity(官方本地 RPC)、火山引擎 Token 包(费用中心 OpenAPI,多包聚合+到期提醒);失败自动降级,绝不伪造数据 |
+| **额度趋势** | 额度快照本地持久化(SQLite,去重写入+400 天保留),变化趋势/每日消耗/**预计耗尽时间**(线性回归,明确标注「预测」,样本不足不显示) |
+| **额度提醒** | 剩余 50/20/10%、Token 包 7 天到期、Provider 数据停更、API 成本阈值;同一事件冷却去重(6 小时/天级) |
+| **ZCode 快捷启动** | 多路径自动检测 + 用户覆盖;未运行一键启动,已运行聚焦原窗口;状态/版本显示;托盘菜单直达;随本软件自动启动(可选) |
+| **凭据安全** | 火山引擎 AK/SK 存入 **Windows 凭据管理器**(keyring),不写文件、不进日志、不出现在任何 UI/错误信息 |
 
 ## 构建与安装
 
@@ -150,9 +155,23 @@ npm run tauri dev              # 开发运行
 
 覆盖的可靠性场景(测试或代码内建):ZCode 运行/未运行/刚启动、SQLite busy(WAL/EXCLUSIVE)、JSONL 半行、数据文件删除/移动(Gone)、schema 变化(重发现)、大量历史(增量水位)、中文/Unicode 路径、多实例(单实例插件)、托盘反复开关(Popup 幂等)、DPI/多屏(物理像素几何 + 校验)、Windows 睡眠/锁屏恢复(显示变更重校验)。
 
+## 服务额度 Provider 说明
+
+| Provider | 数据来源 | 可靠性 |
+|---|---|---|
+| **Codex** | Codex CLI 官方 session 文件(`<home>/.codex/sessions/**.jsonl`,append-only 增量读取)中的官方 `rate_limits`(5h 窗口/周额度 used_percent、reset 时间、credits、plan_type)+ `total_token_usage`(本地 Harness token 分项统计) | 完全离线、官方数据;Codex 未登录→未配置,目录缺失→未安装,额度数据超 6h→标注过期 |
+| **Antigravity** | 官方 language_server 本地 Connect-RPC(`GetUserStatus`/`RetrieveUserQuotaSummary`,仅 127.0.0.1,端口/CSRF 取自官方日志) | 客户端未运行→降级「未找到运行中的本地服务」;无公开远程 API,未安装→未安装 |
+| **火山引擎** | 费用中心官方 OpenAPI `ListResourcePackages`(HMAC-SHA256 签名,本地实现) | 需要 IAM AK/SK(建议 BillingCenterReadOnlyAccess);多包分页全量拉取,千/万/百万 Token 单位自动换算 |
+| **ZCode 卡片** | 现有引擎聚合(今日 Token、API 等价成本、命中率)+ Launcher 状态 | 与现有统计同源 |
+
+**官方额度与本地统计严格分离**:Codex 卡片的「官方额度」来自官方 rate_limits,「本地 Harness 用量」来自 session 文件 token 统计,二者永不合并为一个指标。所有无法获取的字段显示 unavailable,预测值(预计耗尽时间)永远标注「预测」。
+
 ## 已知限制
 
 1. **构建产物**:本仓库设计为由 GitHub Actions(或本机 `npm run tauri build`)产出安装包;仓库内不含二进制。
+1a. **Antigravity 额度**:官方无公开远程 API,仅当官方客户端在本机运行且日志可解析出本地 RPC 端点时可用;失败时显示 unavailable(设计如此,不伪造)。
+1b. **Codex 额度更新时机**:官方 rate_limits 在 Codex 发起请求时刷新,本软件离线读取其落盘值;长时间不用 Codex 时该值会标注「数据过期」。
+1c. **火山引擎**:需用户自行配置 AK/SK(系统凭据管理器);Token 包为费用中心口径(递减型资源包),与按量计费的 API 用量是两个体系。
 2. SQLite 表若无 rowid 且无整数主键,退化为"全扫 + 行哈希去重"(上限 50 万行,超出重置并在诊断面板提示)。
 3. JSONL 文件被截断重写时按"从头重读"处理,极端情况下该文件的 session 汇总可能短时双计(下一次全量刷新自愈)。
 4. 等价花费为估算值:内置价格表 + 用户覆盖仅为官方单价快照,与任何实际 Billing 无关;峰谷判定为 DeepSeek 公开的北京时间规则,不随官方调价自动同步(可通过远程价格表或手动覆盖更新)。

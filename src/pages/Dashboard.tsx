@@ -3,6 +3,7 @@ import { Button, SegmentedControl } from "open-glass-ui";
 import { AnimatedNumber } from "../components/AnimatedNumber";
 import { CostDetailModal } from "../components/CostDetailModal";
 import { MetricCard, InfoDot } from "../components/MetricCard";
+import { QuotaSection } from "../components/QuotaSection";
 import { TrendChart } from "../components/TrendChart";
 import { api } from "../lib/ipc";
 import { store, useStore } from "../lib/store";
@@ -163,6 +164,9 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
           }
         />
       </div>
+
+      {/* AI service quotas (Codex / Antigravity / Volcengine + ZCode card) */}
+      <QuotaSection />
 
       {/* top models */}
       <div className="panel">

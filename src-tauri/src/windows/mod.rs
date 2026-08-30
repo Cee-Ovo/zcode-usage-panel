@@ -52,6 +52,9 @@ impl Side {
 pub mod native;
 
 #[cfg(windows)]
+pub mod launcher;
+
+#[cfg(windows)]
 pub mod snap;
 
 #[cfg(windows)]
@@ -62,8 +65,12 @@ pub mod snap {
     //! Inert stubs so the app compiles (and the data layer stays testable)
     //! on non-Windows hosts.
     use crate::settings::{Settings, WindowState};
+    use std::sync::atomic::AtomicBool;
     use std::sync::Arc;
     use tauri::WebviewWindow;
+
+    /// Mirror of the Windows-side docked-hidden flag (always false here).
+    pub static MAIN_DOCKED_HIDDEN: AtomicBool = AtomicBool::new(false);
 
     #[derive(Clone, Copy, Debug)]
     pub enum SnapMsg {

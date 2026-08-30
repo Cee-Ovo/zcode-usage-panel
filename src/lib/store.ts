@@ -8,6 +8,8 @@ import type {
   DashboardDto,
   DiagnoseDto,
   ModelDetailDto,
+  ProviderSnapshot,
+  QuotaAlertEvent,
   SessionDetailDto,
   SessionSummary,
   Settings,
@@ -31,6 +33,8 @@ export interface AppState {
   alerts: AlertEvent[];
   update: UsageUpdateEvent | null;
   diagnosis: DiagnoseDto | null;
+  providers: ProviderSnapshot[];
+  quotaAlerts: QuotaAlertEvent[];
 }
 
 type Listener = () => void;
@@ -51,6 +55,8 @@ const initial: AppState = {
   alerts: [],
   update: null,
   diagnosis: null,
+  providers: [],
+  quotaAlerts: [],
 };
 
 let state: AppState = initial;

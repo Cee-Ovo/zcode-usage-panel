@@ -155,6 +155,12 @@ impl Engine {
         self.auto_paused.swap(paused, Ordering::Relaxed) != paused
     }
 
+    /// Current auto-suspend state (shared with the provider hub so remote
+    /// polls can back off while the UI is hidden).
+    pub fn is_auto_paused(&self) -> bool {
+        self.auto_paused.load(Ordering::Relaxed)
+    }
+
     // -- background loop ------------------------------------------------------
 
     /// Runs on the dedicated engine thread. Never panics: every step degrades.

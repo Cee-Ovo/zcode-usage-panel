@@ -1,7 +1,30 @@
+# dependencies / build caches
 node_modules
 dist
 src-tauri/target
 src-tauri/gen
-*.log
-.DS_Store
 .vite
+coverage
+
+# local artifacts & release output (builds produce into dist/releases)
+*.log
+logs
+portable
+.DS_Store
+
+# runtime user data never belongs in the repo
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+boot-snapshot.json
+codex-usage-cache.json
+quota-history.sqlite
+alert-memory.json
+settings.json
+
+# credentials & secrets — must never be committed
+*.pem
+*.key
+.env
+.env.*
+secrets*

@@ -1,6 +1,6 @@
 [package]
 name = "zcode-usage-panel"
-version = "1.1.0"
+version = "1.2.0"
 description = "Real-time ZCode Harness token usage monitor"
 authors = ["ZCode Usage Panel contributors"]
 license = "MIT"
@@ -28,11 +28,21 @@ notify = "6"
 dirs = "5"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 ureq = "2.10"
+sha2 = "0.10"
+hmac = "0.12"
+base64 = "0.22"
+keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 windows = { version = "0.58", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_Graphics_Gdi",
+    "Win32_UI_Shell",
+    "Win32_System_Threading",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
 ] }
 
 [dev-dependencies]

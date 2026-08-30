@@ -21,11 +21,16 @@ pub fn update(app: &tauri::AppHandle) {
 
     if let Some(state) = app.try_state::<crate::commands::SharedAppState>() {
         let engine = state.engine.clone();
+        let hub = state.hub.clone();
         drop(state);
         let changed = engine.set_auto_paused(!ui_visible);
+        // Provider hub backs off its remote cadence while hidden (alerts
+        // keep working, just slower).
+        hub.set_paused(!ui_visible);
         // Resume (hidden → active) → force one refresh immediately.
         if ui_visible && changed {
             engine.kick();
+            hub.kick();
         }
     }
 

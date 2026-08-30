@@ -86,3 +86,40 @@ export function formatUnitPerM(v: number | null, currency: string): string {
   const sym = currency === "USD" ? "$" : "¥";
   return `${sym}${v.toFixed(2)}/M`;
 }
+
+/** Human duration: "3 天 7 小时" / "5 小时" / "42 分钟". */
+export function formatDuration(ms: number): string {
+  if (!isFinite(ms) || ms <= 0) return "—";
+  const mins = Math.round(ms / 60_000);
+  if (mins < 60) return `${Math.max(1, mins)} 分钟`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) {
+    const m = mins % 60;
+    return m > 0 ? `${hours} 小时 ${m} 分钟` : `${hours} 小时`;
+  }
+  const days = Math.floor(hours / 24);
+  const h = hours % 24;
+  return h > 0 ? `${days} 天 ${h} 小时` : `${days} 天`;
+}
+
+/** Quota amount: tokens get the compact K/M/B form, others keep precision. */
+export function formatQuotaAmount(v: number | null, unit?: string | null): string {
+  if (v === null || !isFinite(v)) return "—";
+  if (unit && unit.toLowerCase().includes("token")) return formatTokens(v);
+  if (Math.abs(v) >= 1000) return formatFull(v);
+  return String(parseFloat(v.toPrecision(4)));
+}
+
+/** Countdown to a future timestamp, e.g. "还剩 2 小时 05 分". */
+export function formatCountdown(targetMs: number | null, now = Date.now()): string {
+  if (targetMs === null) return "—";
+  const diff = targetMs - now;
+  if (diff <= 0) return "已到期/已重置";
+  const h = Math.floor(diff / 3_600_000);
+  const m = Math.floor((diff % 3_600_000) / 60_000);
+  if (h >= 24) {
+    const d = Math.floor(h / 24);
+    return `还剩 ${d} 天 ${h % 24} 时`;
+  }
+  return `还剩 ${h}:${String(m).padStart(2, "0")}`;
+}

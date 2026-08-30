@@ -5,12 +5,17 @@ import type {
   BootstrapDto,
   CostDetailDto,
   CostSummaryDto,
+  CredentialsStatusDto,
   DashboardDto,
   DiagnoseDto,
+  HistoryPointDto,
+  LauncherActionDto,
   ModelDetailDto,
   OverrideDto,
   PricingRefreshResultDto,
   PricingTableDto,
+  ProviderSnapshot,
+  QuotaAlertEvent,
   SessionDetailDto,
   SessionSummary,
   Settings,
@@ -53,6 +58,26 @@ export const api = {
   pricingRefresh: () => invoke<PricingRefreshResultDto>("pricing_refresh"),
   pricingOverride: (model: string, o: OverrideDto | null) =>
     invoke<PricingTableDto>("pricing_override", { model, o }),
+
+  // ---- multi-provider quota dashboard ----
+  providersOverview: () => invoke<ProviderSnapshot[]>("providers_overview"),
+  providersRefresh: (provider?: string) =>
+    invoke<void>("providers_refresh", { provider: provider ?? null }),
+  quotaAlertsList: () => invoke<QuotaAlertEvent[]>("quota_alerts_list"),
+  providersHistory: (provider: string, window: string, range: string) =>
+    invoke<HistoryPointDto[]>("providers_history", { provider, window, range }),
+  providersConsumption: (provider: string, window: string, days: number) =>
+    invoke<[number, number][]>("providers_consumption", { provider, window, days }),
+  zcodeStatus: () => invoke<ProviderSnapshot>("zcode_status"),
+  zcodeLaunch: () => invoke<LauncherActionDto>("zcode_launch"),
+  zcodeReveal: () => invoke<LauncherActionDto>("zcode_reveal"),
+  volcengineCredentialsStatus: () =>
+    invoke<CredentialsStatusDto>("volcengine_credentials_status"),
+  volcengineCredentialsSet: (ak: string, sk: string) =>
+    invoke<void>("volcengine_credentials_set", { ak, sk }),
+  volcengineCredentialsClear: () =>
+    invoke<void>("volcengine_credentials_clear"),
+  volcengineTest: () => invoke<string>("volcengine_test"),
 };
 
 /** Subscribe to a backend event; returns an unlisten function. */

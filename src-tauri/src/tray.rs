@@ -19,6 +19,8 @@ pub struct TrayHandles {
 pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let show = MenuItemBuilder::with_id("show", "显示主面板").build(app)?;
     let today = MenuItemBuilder::with_id("today", "今日用量").build(app)?;
+    let launch_zcode = MenuItemBuilder::with_id("launch_zcode", "启动 ZCode").build(app)?;
+    let reveal_zcode = MenuItemBuilder::with_id("reveal_zcode", "显示 ZCode").build(app)?;
     let pause = CheckMenuItemBuilder::with_id("pause", "暂停监控").build(app)?;
     let snap = CheckMenuItemBuilder::with_id("snap", "边缘吸附").build(app)?;
     let aot = CheckMenuItemBuilder::with_id("aot", "Always on Top").build(app)?;
@@ -29,6 +31,9 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let menu = MenuBuilder::new(app)
         .item(&show)
         .item(&today)
+        .separator()
+        .item(&launch_zcode)
+        .item(&reveal_zcode)
         .separator()
         .item(&pause)
         .item(&snap)
@@ -106,11 +111,18 @@ pub fn sync_checks(app: &AppHandle, s: &Settings) {
 
 fn handle_menu(app: &AppHandle, id: &str) {
     let state = app.state::<SharedAppState>();
-    let mut settings = current_settings(&state);
-    match id {
+    let mut settings = current_settings(&state);    match id {
         "show" => reveal_main(app, &state),
         "today" => {
             crate::popup::toggle(app, None);
+        }
+        "launch_zcode" => {
+            let s = current_settings(&state);
+            let _ = state.hub.launcher_action("launch", &s);
+        }
+        "reveal_zcode" => {
+            let s = current_settings(&state);
+            let _ = state.hub.launcher_action("reveal", &s);
         }        "pause" => {
             settings.monitoring_paused = !settings.monitoring_paused;
             apply_settings(app, &state, settings);

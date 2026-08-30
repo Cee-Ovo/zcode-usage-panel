@@ -1,6 +1,14 @@
 //! User settings, persisted to `<appConfigDir>/settings.json`.
+//!
+//! Compatibility: every struct derives `Default` and deserializes with
+//! `#[serde(default)]` on the container, so a v1.1 `settings.json` (without
+//! provider/launcher/quota-alert sections) loads losslessly — that IS the
+//! settings migration. Unknown fields are kept out by serde's default
+//! behavior for known structs, and no key is ever removed on upgrade.
 
 use serde::{Deserialize, Serialize};
+
+use crate::providers::quota_alerts::QuotaAlertRules;
 
 pub const DEFAULT_SNAP_SIDES: SnapSides = SnapSides {
     left: true,
@@ -95,6 +103,57 @@ pub struct WindowState {
     pub dock_hidden: bool,
 }
 
+/// Per-provider switches + cadences. Secrets are NOT here — they live in the
+/// OS keyring (see providers/secrets.rs).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ProviderSettings {
+    pub codex_enabled: bool,
+    /// Override for the Codex CLI data dir (`~/.codex` by default).
+    pub codex_home: Option<String>,
+    pub codex_refresh_ms: u64,
+    pub antigravity_enabled: bool,
+    pub antigravity_refresh_ms: u64,
+    pub volcengine_enabled: bool,
+    pub volcengine_refresh_ms: u64,
+    pub volcengine_region: String,
+    /// Optional substring filter for package names (empty = show all).
+    pub volcengine_filter: String,
+}
+
+impl Default for ProviderSettings {
+    fn default() -> Self {
+        Self {
+            codex_enabled: true,
+            codex_home: None,
+            codex_refresh_ms: crate::providers::cadence::CODEX_MS,
+            antigravity_enabled: true,
+            antigravity_refresh_ms: crate::providers::cadence::ANTIGRAVITY_MS,
+            volcengine_enabled: true,
+            volcengine_refresh_ms: crate::providers::cadence::VOLCENGINE_MS,
+            volcengine_region: crate::providers::volcengine::DEFAULT_REGION.into(),
+            volcengine_filter: String::new(),
+        }
+    }
+}
+
+/// ZCode quick-launch configuration.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LauncherSettings {
+    pub enabled: bool,
+    /// User-specified exe path; `None` ⇒ auto-detect.
+    pub exe_path: Option<String>,
+    /// Start ZCode together with this app.
+    pub autostart: bool,
+}
+
+impl Default for LauncherSettings {
+    fn default() -> Self {
+        Self { enabled: true, exe_path: None, autostart: false }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -117,6 +176,10 @@ pub struct Settings {
     pub snap: SnapSettings,
     pub notifications: AlertRuleState,
     pub window: WindowState,
+    /// Multi-provider quota dashboard (added v1.2; defaults keep old files valid).
+    pub providers: ProviderSettings,
+    pub launcher: LauncherSettings,
+    pub quota_alerts: QuotaAlertRules,
 }
 
 impl Default for Settings {
@@ -134,6 +197,9 @@ impl Default for Settings {
             snap: SnapSettings::default(),
             notifications: AlertRuleState::default(),
             window: WindowState::default(),
+            providers: ProviderSettings::default(),
+            launcher: LauncherSettings::default(),
+            quota_alerts: QuotaAlertRules::default(),
         }
     }
 }

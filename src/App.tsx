@@ -84,7 +84,9 @@ export function App() {
       await refreshQueries();
       const sessions = await api.sessions();
       const alerts = await api.alerts();
-      if (!disposed) store.set({ sessions, alerts });
+      const providers = await api.providersOverview();
+      const quotaAlerts = await api.quotaAlertsList();
+      if (!disposed) store.set({ sessions, alerts, providers, quotaAlerts });
     })().catch(console.error);
 
     const unsubs: (() => void)[] = [];
@@ -92,6 +94,15 @@ export function App() {
       store.set({ update: e });
       // Refresh the visible queries — Rust only emits at most ~2×/s.
       refreshQueries().catch(() => {});
+    }).then((u) => unsubs.push(u));
+
+    onEvent<import("./lib/types").ProviderSnapshot[]>("provider-update", (snaps) => {
+      store.set({ providers: snaps ?? [] });
+    }).then((u) => unsubs.push(u));
+
+    onEvent<import("./lib/types").QuotaAlertEvent>("quota-alert", (ev) => {
+      const current = store.get().quotaAlerts;
+      store.set({ quotaAlerts: [ev, ...current].slice(0, 50) });
     }).then((u) => unsubs.push(u));
 
     onEvent<boolean>("ui-visibility", (visible) => {

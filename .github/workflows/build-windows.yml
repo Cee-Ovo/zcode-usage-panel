@@ -28,6 +28,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          cache-on-failure: true
 
       - name: Install frontend dependencies
         run: npm install --no-fund --no-audit
@@ -42,10 +43,18 @@ jobs:
         run: npm run build
 
       - name: Rust unit tests (data layer)
-        shell: pwsh
+        shell: bash
         run: |
-          cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast 2>&1 | Tee-Object -FilePath test-output.log
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          set -uo pipefail
+          status=0
+          cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast 2>&1 | tee test-output.log || status=$?
+          if [ $status -ne 0 ]; then
+            echo "=== first run failed (exit $status); single-threaded rerun for diagnosis ===" | tee -a test-output.log
+            # Single-threaded: when the process dies mid-test, the last
+            # "test <name> ..." line without a result names the culprit.
+            RUST_BACKTRACE=1 cargo test --lib --manifest-path src-tauri/Cargo.toml -- --test-threads=1 --nocapture 2>&1 | tee -a test-output.log || true
+            exit 1
+          fi
 
       - name: Surface failing tests as annotations (on failure)
         if: failure()
@@ -53,9 +62,14 @@ jobs:
         run: |
           # Mirror cargo failures into workflow annotations (annotations are
           # readable without log access) and keep the full log as artifact.
-          # Priority order: panics + failing test names first (annotations
-          # are capped at ~10, and these identify the failure).
-          { grep -E "panicked at" -A 2 test-output.log; grep -E "^test .*FAILED" test-output.log; grep -E "^---- .* ----" test-output.log; } | head -40 > fails.txt || true
+          # Crash signatures (exit code 0x…, STATUS_*, stack overflow) come
+          # first, then the log tail — the single-threaded rerun tail shows
+          # the last test that started before a hard crash.
+          {
+            grep -E "panicked at|has overflowed|stack overflow|STATUS_|exit code: 0x|fatal runtime|abnormal termination|^test .*FAILED|^failures:|^---- |^error(\[E[0-9]+\])?:" test-output.log | head -12
+            echo '=== LOG TAIL ==='
+            tail -n 25 test-output.log
+          } > fails.txt || true
           n=0
           while IFS= read -r line; do
             [ -z "$line" ] && continue

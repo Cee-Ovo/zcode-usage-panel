@@ -53,7 +53,9 @@ jobs:
         run: |
           # Mirror cargo failures into workflow annotations (annotations are
           # readable without log access) and keep the full log as artifact.
-          grep -E "^test .*FAILED|^failures:$|^---- |panicked at|^ +left:|^ +right:|^error(\[E[0-9]+\])?:" -A 2 test-output.log | head -80 > fails.txt || true
+          # Priority order: panics + failing test names first (annotations
+          # are capped at ~10, and these identify the failure).
+          { grep -E "panicked at" -A 2 test-output.log; grep -E "^test .*FAILED" test-output.log; grep -E "^---- .* ----" test-output.log; } | head -40 > fails.txt || true
           n=0
           while IFS= read -r line; do
             [ -z "$line" ] && continue

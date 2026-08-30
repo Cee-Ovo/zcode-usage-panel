@@ -80,6 +80,10 @@ struct SessionUsage {
     /// Number of token_count events (= model responses) in this session.
     responses: u64,
     totals: TotalTokenUsage,
+    /// Day-keyed (local days since epoch) usage deltas, derived by diffing
+    /// successive cumulative totals — accurate across midnight.
+    #[serde(default)]
+    daily: HashMap<i64, TotalTokenUsage>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -341,6 +345,20 @@ fn apply_line(line: &str, session: &mut SessionUsage, best_rl: &mut Option<(i64,
             if p.get("type").and_then(|t| t.as_str()) == Some("token_count") {
                 if let Some(t) = p.get("info").and_then(|i| i.get("total_token_usage")) {
                     if let Ok(parsed) = serde_json::from_value::<TotalTokenUsage>(t.clone()) {
+                        // Cumulative counter: attribute the delta since the
+                        // previous event to the event's local day. Counters
+                        // can reset (new reasoning session) — clamp at 0.
+                        let day = local_day_key(ts_ms);
+                        let entry = session.daily.entry(day).or_default();
+                        entry.input_tokens += parsed.input_tokens.saturating_sub(session.totals.input_tokens);
+                        entry.cached_input_tokens +=
+                            parsed.cached_input_tokens.saturating_sub(session.totals.cached_input_tokens);
+                        entry.cache_write_input_tokens +=
+                            parsed.cache_write_input_tokens.saturating_sub(session.totals.cache_write_input_tokens);
+                        entry.output_tokens += parsed.output_tokens.saturating_sub(session.totals.output_tokens);
+                        entry.reasoning_output_tokens +=
+                            parsed.reasoning_output_tokens.saturating_sub(session.totals.reasoning_output_tokens);
+                        entry.total_tokens += parsed.total_tokens.saturating_sub(session.totals.total_tokens);
                         session.totals = parsed; // cumulative — last wins
                         session.responses += 1;
                         if ts_ms > session.last_ts_ms {
@@ -376,32 +394,40 @@ fn collect_jsonl(dir: &Path, out: &mut Vec<PathBuf>) {
 fn aggregate_local(files: &HashMap<String, FileEntry>, now_ms: i64) -> LocalUsage {
     let mut usage = LocalUsage::default();
     let mut by_model: HashMap<String, TokenBreakdown> = HashMap::new();
-    let today_start = crate::zcode::aggregate::local_day_start_ms(now_ms);
+    let today_key = local_day_key(now_ms);
+    let seven_days_ago_key = local_day_key(now_ms.saturating_sub(7 * 24 * 3600_000));
     for entry in files.values() {
         let s = &entry.session;
         if s.session_id.is_empty() && s.totals.total_tokens == 0 {
             continue;
         }
         usage.sessions += 1;
-        let ts = if s.last_ts_ms > 0 { s.last_ts_ms } else { s.first_ts_ms };
-        let add = |target: &mut TokenBreakdown| {
-            target.requests += s.responses;
-            target.input_tokens += s.totals.input_tokens;
-            target.cached_input_tokens += s.totals.cached_input_tokens;
-            target.cache_write_tokens += s.totals.cache_write_input_tokens;
-            target.output_tokens += s.totals.output_tokens;
-            target.reasoning_tokens += s.totals.reasoning_output_tokens;
-            target.total_tokens += s.totals.total_tokens;
-        };
-        if ts >= today_start {
-            add(&mut usage.today);
+        for (day, delta) in &s.daily {
+            let mut add = |target: &mut TokenBreakdown| {
+                target.input_tokens += delta.input_tokens;
+                target.cached_input_tokens += delta.cached_input_tokens;
+                target.cache_write_tokens += delta.cache_write_input_tokens;
+                target.output_tokens += delta.output_tokens;
+                target.reasoning_tokens += delta.reasoning_output_tokens;
+                target.total_tokens += delta.total_tokens;
+            };
+            if *day == today_key {
+                add(&mut usage.today);
+            }
+            if *day >= seven_days_ago_key {
+                add(&mut usage.last_7d);
+            }
+            let key = if s.model.is_empty() { "unknown".to_string() } else { s.model.clone() };
+            add(by_model.entry(key).or_default());
         }
-        if ts >= now_ms.saturating_sub(7 * 24 * 3600_000) {
-            add(&mut usage.last_7d);
-        }
-        add(&mut usage.all_time);
-        let key = if s.model.is_empty() { "unknown".to_string() } else { s.model.clone() };
-        add(by_model.entry(key).or_default());
+        // all-time from the cumulative counters (exact)
+        usage.all_time.requests += s.responses;
+        usage.all_time.input_tokens += s.totals.input_tokens;
+        usage.all_time.cached_input_tokens += s.totals.cached_input_tokens;
+        usage.all_time.cache_write_tokens += s.totals.cache_write_input_tokens;
+        usage.all_time.output_tokens += s.totals.output_tokens;
+        usage.all_time.reasoning_tokens += s.totals.reasoning_output_tokens;
+        usage.all_time.total_tokens += s.totals.total_tokens;
     }
     usage.models = by_model
         .into_iter()
@@ -409,6 +435,11 @@ fn aggregate_local(files: &HashMap<String, FileEntry>, now_ms: i64) -> LocalUsag
         .collect();
     usage.models.sort_by(|a, b| b.breakdown.total_tokens.cmp(&a.breakdown.total_tokens));
     usage
+}
+
+/// Local day index (days since local-midnight epoch) for bucketing.
+fn local_day_key(ts_ms: i64) -> i64 {
+    crate::zcode::aggregate::local_day_start_ms(ts_ms) / 86_400_000
 }
 
 /// Decode ONLY the id_token claims segment (never the signature, never the
@@ -604,6 +635,27 @@ mod tests {
         let snap2 = q.poll(1_788_030_000_000);
         assert_eq!(snap2.windows.len(), 2);
         assert_eq!(snap2.local_usage.unwrap().all_time.total_tokens, 124);
+    }
+
+    #[test]
+    fn daily_deltas_split_across_midnight() {
+        let (_dir, home) = tmp_home();
+        // Session spanning two days (24 h apart → different local days in
+        // every timezone): day1 +100, day2 cumulative → +80 delta.
+        let late_night = r#"{"timestamp":"2026-08-29T12:00:00.000Z","ordinal":3,"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0,"reasoning_output_tokens":0,"total_tokens":100}}}}"#;
+        let after_midnight = r#"{"timestamp":"2026-08-30T12:00:00.000Z","ordinal":4,"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":150,"cached_input_tokens":20,"cache_write_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0,"total_tokens":180}}}}"#;
+        write_rollout(&home, "rollout-mid.jsonl", &[meta_line(), turn_line(), late_night.into(), after_midnight.into()]);
+        let mut p = CodexProvider::new(None);
+        p.with_home(home);
+        // "now" = 2026-08-30 08:00 local-ish; choose an epoch clearly on day 2.
+        let now = 1_788_086_400_000i64;
+        let snap = p.poll(now);
+        let lu = snap.local_usage.unwrap();
+        assert_eq!(lu.all_time.total_tokens, 180, "cumulative last-wins");
+        // today (day 2) got exactly the second delta: 180-100=80
+        assert_eq!(lu.today.total_tokens, 80, "today bucket = post-midnight delta only");
+        // models aggregate from daily deltas → 180 total
+        assert_eq!(lu.models[0].breakdown.total_tokens, 180);
     }
 
     #[test]

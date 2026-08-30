@@ -173,6 +173,35 @@ impl QuotaAlertEngine {
             }
         }
 
+        // 2b) reset-soon: a window whose usage was high resets within 30 min
+        //     (nice-to-know toast; one per reset timestamp).
+        for w in &snap.windows {
+            let Some(reset_at) = w.reset_at_ms else { continue };
+            let until_reset = reset_at - now_ms;
+            if until_reset <= 0 || until_reset > 30 * 60_000 {
+                continue;
+            }
+            let Some(used) = w.used_percent else { continue };
+            if used < 80.0 {
+                continue;
+            }
+            let akey = format!("reset:{}:{}:{}", snap.provider, w.key, reset_at);
+            if cooldown(memory, &akey, 6 * 3600_000) {
+                memory.fired.insert(akey, now_ms);
+                out.push(AlertEvent {
+                    rule: "quota_reset".into(),
+                    severity: 1,
+                    title: format!("{} · 额度即将重置", provider_display(&snap.provider)),
+                    body: format!(
+                        "{} 已用 {used:.0}%,{} 分钟后重置",
+                        w.label,
+                        until_reset / 60_000
+                    ),
+                    ts_ms: now_ms,
+                });
+            }
+        }
+
         // 3) provider stale
         let stale_after = (interval_ms as i64 * 3).max(10 * 60_000);
         let age = now_ms - snap.updated_at_ms;
@@ -367,5 +396,46 @@ mod tests {
             0,
         );
         assert!(QuotaAlertEngine::evaluate(&mut mem, &history, &s, &rules, 60_000, 5_000_000).is_empty());
+    }
+}
+#[cfg(test)]
+mod reset_tests {
+    use super::*;
+    use crate::providers::{ProviderStatus, QuotaWindow};
+
+    #[test]
+    fn reset_soon_fires_once_per_reset() {
+        let mut mem = AlertMemory::default();
+        let history = QuotaHistory::open_in_memory();
+        let rules = QuotaAlertRules::default();
+        let now = 1_000_000_000i64;
+        let reset_at = now + 10 * 60_000;
+        let mut s = ProviderSnapshot::empty("codex", ProviderStatus::Ok, now);
+        s.windows.push(QuotaWindow {
+            key: "5h".into(),
+            label: "5 小时窗口".into(),
+            used_percent: Some(95.0),
+            reset_at_ms: Some(reset_at),
+            ..Default::default()
+        });
+        let evs = QuotaAlertEngine::evaluate(&mut mem, &history, &s, &rules, 60_000, now);
+        assert_eq!(evs.len(), 2, "threshold(95%→level3) + reset_soon: {evs:?}"); 
+        let reset_ev = evs.iter().find(|e| e.rule == "quota_reset").unwrap();
+        assert!(reset_ev.body.contains("10 分钟后重置"));
+        // same reset window again → suppressed (per reset-timestamp key)
+        let evs2 = QuotaAlertEngine::evaluate(&mut mem, &history, &s, &rules, 60_000, now + 60_000);
+        assert!(evs2.iter().all(|e| e.rule != "quota_reset"));
+
+        // low usage near reset → no toast
+        let mut low = ProviderSnapshot::empty("codex", ProviderStatus::Ok, now);
+        low.windows.push(QuotaWindow {
+            key: "5h".into(),
+            label: "5 小时窗口".into(),
+            used_percent: Some(20.0),
+            reset_at_ms: Some(reset_at),
+            ..Default::default()
+        });
+        let evs3 = QuotaAlertEngine::evaluate(&mut mem, &history, &low, &rules, 60_000, now);
+        assert!(evs3.iter().all(|e| e.rule != "quota_reset"));
     }
 }

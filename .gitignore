@@ -23,8 +23,10 @@ alert-memory.json
 settings.json
 
 # credentials & secrets — must never be committed
+# (patterns are deliberately narrow: never blanket-match source files)
 *.pem
-*.key
+*.token
 .env
 .env.*
-secrets*
+credentials.json
+client_secret*.json

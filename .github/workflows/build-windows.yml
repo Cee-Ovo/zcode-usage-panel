@@ -65,7 +65,68 @@ jobs:
             Write-Output ("PROBE {0} {1}" -f $f, $state)
           }
           PSEOF
-          powershell -NoProfile -ExecutionPolicy Bypass -File probe.ps1 2>&1 | tee test-output.log
+          cat > walk-imports.ps1 <<'PSEOF'
+          param([string]$ExePath)
+          $src = @"
+          using System;
+          using System.Runtime.InteropServices;
+          public static class P {
+            [DllImport("kernel32", SetLastError=true)] public static extern IntPtr LoadLibrary(string name);
+            [DllImport("kernel32")] public static extern IntPtr GetProcAddress(IntPtr h, string proc);
+          }
+          "@
+          Add-Type -TypeDefinition $src
+          $bytes = [System.IO.File]::ReadAllBytes($ExePath)
+          $off = [BitConverter]::ToInt32($bytes, 0x3C)
+          $opt = $off + 24
+          $magic = [BitConverter]::ToUInt16($bytes, $opt)
+          $ddir = if ($magic -eq 0x20b) { $opt + 112 } else { $opt + 96 }
+          $numSec = [BitConverter]::ToUInt16($bytes, $off + 6)
+          $secOff = $opt + [BitConverter]::ToUInt16($bytes, $off + 20)
+          function RvaToOff([uint32]$rva) {
+            for ($i=0; $i -lt $numSec; $i++) {
+              $s = $secOff + 40*$i
+              $va = [BitConverter]::ToUInt32($bytes, $s+12); $vs = [BitConverter]::ToUInt32($bytes, $s+8)
+              $pr = [BitConverter]::ToUInt32($bytes, $s+20); $ps = [BitConverter]::ToUInt32($bytes, $s+16)
+              if ($rva -ge $va -and $rva -lt ($va + [Math]::Max($vs,$ps))) { return $pr + ($rva - $va) }
+            }
+            return [uint32]0
+          }
+          $importRVA = [BitConverter]::ToUInt32($bytes, $ddir + 8)
+          if ($importRVA -eq 0) { Write-Output "IMPORT-WALK no import directory"; exit 0 }
+          $d = RvaToOff $importRVA
+          if ($d -eq 0) { Write-Output "IMPORT-WALK rva map failed"; exit 0 }
+          $dllCount = 0; $missing = 0; $checked = 0
+          while ($true) {
+            $nameRva = [BitConverter]::ToUInt32($bytes, $d+12)
+            $oftRva = [BitConverter]::ToUInt32($bytes, $d+0)
+            $ftRva  = [BitConverter]::ToUInt32($bytes, $d+16)
+            if ($nameRva -eq 0 -and $oftRva -eq 0) { break }
+            $no = RvaToOff $nameRva
+            $dll = ""
+            for ($i=0; $i -lt 260; $i++) { $c = $bytes[$no+$i]; if ($c -eq 0) { break }; $dll += [char]$c }
+            $dllCount++
+            $lh = [P]::LoadLibrary($dll)
+            if ([Int64]$lh -eq 0) { Write-Output "IMPORT MISSING dll $dll (LoadLibrary failed)"; $missing++; $d += 20; continue }
+            $thunkRva = if ($oftRva -ne 0) { $oftRva } else { $ftRva }
+            $t = RvaToOff $thunkRva
+            for ($j=0; $j -lt 100000; $j++) {
+              $val = [BitConverter]::ToUInt64($bytes, $t + 8*$j)
+              if ($val -eq 0) { break }
+              if (($val -band 0x8000000000000000) -ne 0) { continue }
+              $hn = RvaToOff ([uint32]($val -band 0xFFFFFFFF))
+              $sym = ""
+              for ($k=0; $k -lt 260; $k++) { $c = $bytes[$hn+2+$k]; if ($c -eq 0) { break }; $sym += [char]$c }
+              $checked++
+              $a = [P]::GetProcAddress($lh, $sym)
+              if ([Int64]$a -eq 0) { Write-Output "IMPORT MISSING $dll!$sym"; $missing++ }
+            }
+            $d += 20
+          }
+          Write-Output "IMPORT-WALK dlls=$dllCount symbols=$checked missing=$missing"
+          exit 0
+          PSEOF
+          powershell -NoProfile -ExecutionPolicy Bypass -File probe.ps1 2>&1 | tee test-output.log || true
 
           status=0
           cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast 2>&1 | tee -a test-output.log || status=$?
@@ -73,70 +134,10 @@ jobs:
             echo "=== first run failed (exit $status); diagnosing ===" | tee -a test-output.log
             EXE=$(ls -t src-tauri/target/debug/deps/zcode_usage_panel_lib-*.exe 2>/dev/null | head -1)
             if [ -n "$EXE" ]; then
-              cat > walk-imports.ps1 <<'PSEOF'
-              param([string]$ExePath)
-              $src = @"
-              using System;
-              using System.Runtime.InteropServices;
-              public static class P {
-                [DllImport("kernel32", SetLastError=true)] public static extern IntPtr LoadLibrary(string name);
-                [DllImport("kernel32")] public static extern IntPtr GetProcAddress(IntPtr h, string proc);
-              }
-              "@
-              Add-Type -TypeDefinition $src
-              $bytes = [System.IO.File]::ReadAllBytes($ExePath)
-              $off = [BitConverter]::ToInt32($bytes, 0x3C)
-              $opt = $off + 24
-              $magic = [BitConverter]::ToUInt16($bytes, $opt)
-              $ddir = if ($magic -eq 0x20b) { $opt + 112 } else { $opt + 96 }
-              $numSec = [BitConverter]::ToUInt16($bytes, $off + 6)
-              $secOff = $opt + [BitConverter]::ToUInt16($bytes, $off + 20)
-              function RvaToOff([uint32]$rva) {
-                for ($i=0; $i -lt $numSec; $i++) {
-                  $s = $secOff + 40*$i
-                  $va = [BitConverter]::ToUInt32($bytes, $s+12); $vs = [BitConverter]::ToUInt32($bytes, $s+8)
-                  $pr = [BitConverter]::ToUInt32($bytes, $s+20); $ps = [BitConverter]::ToUInt32($bytes, $s+16)
-                  if ($rva -ge $va -and $rva -lt ($va + [Math]::Max($vs,$ps))) { return $pr + ($rva - $va) }
-                }
-                return [uint32]0
-              }
-              $importRVA = [BitConverter]::ToUInt32($bytes, $ddir + 8)
-              if ($importRVA -eq 0) { Write-Output "IMPORT-WALK no import directory"; exit }
-              $d = RvaToOff $importRVA
-              if ($d -eq 0) { Write-Output "IMPORT-WALK rva map failed"; exit }
-              $dllCount = 0; $missing = 0; $checked = 0
-              while ($true) {
-                $nameRva = [BitConverter]::ToUInt32($bytes, $d+12)
-                $oftRva = [BitConverter]::ToUInt32($bytes, $d+0)
-                $ftRva  = [BitConverter]::ToUInt32($bytes, $d+16)
-                if ($nameRva -eq 0 -and $oftRva -eq 0) { break }
-                $no = RvaToOff $nameRva
-                $dll = ""
-                for ($i=0; $i -lt 260; $i++) { $c = $bytes[$no+$i]; if ($c -eq 0) { break }; $dll += [char]$c }
-                $dllCount++
-                $lh = [P]::LoadLibrary($dll)
-                if ([Int64]$lh -eq 0) { Write-Output "IMPORT MISSING dll $dll (LoadLibrary failed)"; $missing++; $d += 20; continue }
-                $thunkRva = if ($oftRva -ne 0) { $oftRva } else { $ftRva }
-                $t = RvaToOff $thunkRva
-                for ($j=0; $j -lt 100000; $j++) {
-                  $val = [BitConverter]::ToUInt64($bytes, $t + 8*$j)
-                  if ($val -eq 0) { break }
-                  if (($val -band 0x8000000000000000) -ne 0) { continue }
-                  $hn = RvaToOff ([uint32]($val -band 0xFFFFFFFF))
-                  $sym = ""
-                  for ($k=0; $k -lt 260; $k++) { $c = $bytes[$hn+2+$k]; if ($c -eq 0) { break }; $sym += [char]$c }
-                  $checked++
-                  $a = [P]::GetProcAddress($lh, $sym)
-                  if ([Int64]$a -eq 0) { Write-Output "IMPORT MISSING $dll!$sym"; $missing++ }
-                }
-                $d += 20
-              }
-              Write-Output "IMPORT-WALK dlls=$dllCount symbols=$checked missing=$missing"
-              PSEOF
-              echo "=== import cross-check on $EXE ===" | tee -a test-output.log
-              powershell -NoProfile -ExecutionPolicy Bypass -File walk-imports.ps1 -ExePath "$(cygpath -w "$EXE")" 2>&1 | tee -a test-output.log
+              echo "=== import cross-check on $EXE ===" | tee -a test-output.log || true
+              powershell -NoProfile -ExecutionPolicy Bypass -File walk-imports.ps1 -ExePath "$(cygpath -w "$EXE")" 2>&1 | tee -a test-output.log || true
             fi
-            echo "=== single-threaded rerun ===" | tee -a test-output.log
+            echo "=== single-threaded rerun ===" | tee -a test-output.log || true
             RUST_BACKTRACE=1 cargo test --lib --manifest-path src-tauri/Cargo.toml -- --test-threads=1 --nocapture 2>&1 | tee -a test-output.log || true
             exit 1
           fi

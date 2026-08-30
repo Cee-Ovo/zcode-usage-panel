@@ -42,7 +42,31 @@ jobs:
         run: npm run build
 
       - name: Rust unit tests (data layer)
-        run: cargo test --manifest-path src-tauri/Cargo.toml
+        shell: pwsh
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast 2>&1 | Tee-Object -FilePath test-output.log
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Surface failing tests as annotations (on failure)
+        if: failure()
+        shell: pwsh
+        run: |
+          # cargo test output is not annotated by default; mirror failures
+          # into workflow annotations so they are visible without log access.
+          $lines = Get-Content test-output.log
+          $fail = $false
+          $buffer = New-Object System.Collections.Generic.List[string]
+          foreach ($line in $lines) {
+            if ($line -match '^(test .* \.\.\. FAILED|failures:|---- .* stdout ----|error(\[E\d+\])?:|thread .* panicked)' -or ($fail -and $line -match '^\s+(left|right|assertion)')) {
+              $buffer.Add($line)
+              if ($buffer.Count -ge 40) { break }
+              $fail = $true
+            }
+          }
+          $text = ($buffer -join ' | ')
+          if ($text.Length -gt 0) {
+            Write-Output "::error title=Test failures::$($text.Replace('%','%25').Replace('\r',' ').Replace('\n',' ').Replace("`r",' ').Replace("`n',' '))"
+          }
 
       - name: Data-layer performance benchmark (1M records / 10k sessions)
         run: cargo run --release --manifest-path src-tauri/Cargo.toml --example bench

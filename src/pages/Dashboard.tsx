@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { Button, SegmentedControl } from "open-glass-ui";
+import { AnimatePresence, motion } from "motion/react";
 import { AnimatedNumber } from "../components/AnimatedNumber";
 import { CostDetailModal } from "../components/CostDetailModal";
 import { MetricCard, InfoDot } from "../components/MetricCard";
 import { QuotaSection } from "../components/QuotaSection";
 import { TrendChart } from "../components/TrendChart";
 import { api } from "../lib/ipc";
+import { listItemVariants, softSpring, staggerContainer } from "../lib/motion";
 import { store, useStore } from "../lib/store";
 import type { ModelCost, ModelRow } from "../lib/types";
 import { cacheHitRate, totalTokens } from "../lib/types";
@@ -75,7 +77,12 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
       </div>
 
       {/* core metrics */}
-      <div className="zup-grid metrics-grid">
+      <motion.div
+        className="zup-grid metrics-grid"
+        variants={staggerContainer}
+        initial="initial"
+        animate="enter"
+      >
         <MetricCard
           label="总 Token"
           value={<AnimatedNumber value={totalTokens(agg)} format={formatTokens} />}
@@ -163,7 +170,7 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
             dash.models.length > 1 ? `共 ${dash.models.length} 个模型` : undefined
           }
         />
-      </div>
+      </motion.div>
 
       {/* AI service quotas (Codex / Antigravity / Volcengine + ZCode card) */}
       <QuotaSection />
@@ -194,31 +201,43 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
         {models.length === 0 && (
           <div className="empty-state">该时间范围内没有模型调用</div>
         )}
-        {models.map((m) => (
-          <ModelLine
-            key={m.name}
-            m={m}
-            cost={costByModel.get(m.name)}
-            onCostClick={() => setCostModalModel(m.name)}
-          />
-        ))}
+        <AnimatePresence initial={false}>
+          {models.map((m) => (
+            <ModelLine
+              key={m.name}
+              m={m}
+              cost={costByModel.get(m.name)}
+              onCostClick={() => setCostModalModel(m.name)}
+            />
+          ))}
+        </AnimatePresence>
       </div>
 
       {/* recent local alerts */}
       {alerts.length > 0 && (
         <div className="panel">
           <div className="panel-title">异常提醒(本地)</div>
-          {alerts.slice(0, 3).map((a) => (
-            <div key={`${a.rule}-${a.tsMs}`} className={`alert-chip ${a.severity >= 2 ? "critical" : ""}`}>
-              <span style={{ fontWeight: 650 }}>{a.title}</span>
-              <span className="muted" style={{ flex: 1 }}>
-                {a.body}
-              </span>
-              <span className="muted" style={{ fontSize: 10.5 }}>
-                {formatRelative(a.tsMs)}
-              </span>
-            </div>
-          ))}
+          <AnimatePresence initial={false}>
+            {alerts.slice(0, 3).map((a) => (
+              <motion.div
+                layout="position"
+                variants={listItemVariants}
+                initial="initial"
+                animate="enter"
+                exit="exit"
+                key={`${a.rule}-${a.tsMs}`}
+                className={`alert-chip ${a.severity >= 2 ? "critical" : ""}`}
+              >
+                <span style={{ fontWeight: 650 }}>{a.title}</span>
+                <span className="muted" style={{ flex: 1 }}>
+                  {a.body}
+                </span>
+                <span className="muted" style={{ fontSize: 10.5 }}>
+                  {formatRelative(a.tsMs)}
+                </span>
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
       )}
 
@@ -270,15 +289,18 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
         <TrendChart trend={trend} visibleModels={visibleModels} />
       </div>
 
-      {costModalModel && (
-        <CostDetailModal
-          model={costModalModel}
-          rangeKey={rangeKey}
-          fx={costSummary?.fx}
-          priceUpdatedAt={costSummary?.priceUpdatedAt}
-          onClose={() => setCostModalModel(null)}
-        />
-      )}
+      <AnimatePresence>
+        {costModalModel && (
+          <CostDetailModal
+            key={costModalModel}
+            model={costModalModel}
+            rangeKey={rangeKey}
+            fx={costSummary?.fx}
+            priceUpdatedAt={costSummary?.priceUpdatedAt}
+            onClose={() => setCostModalModel(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -294,7 +316,14 @@ function ModelLine({
 }) {
   const hit = cacheHitRate(m.agg);
   return (
-    <div
+    <motion.div
+      layout="position"
+      variants={listItemVariants}
+      initial="initial"
+      animate="enter"
+      exit="exit"
+      whileHover={{ x: 2 }}
+      transition={softSpring}
       className="model-row"
       onClick={() => {
         store.set({ page: "models" });
@@ -338,6 +367,6 @@ function ModelLine({
           </span>
         )}
       </span>
-    </div>
+    </motion.div>
   );
 }

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Button } from "open-glass-ui";
+import { motion } from "motion/react";
 import { api } from "../lib/ipc";
+import { backdropVariants, dialogVariants } from "../lib/motion";
 import type { CostDetailDto, FxInfo } from "../lib/types";
 import { RANGE_LABELS } from "../lib/types";
 import { formatCny, formatTokens, formatUnitPerM } from "../lib/format";
@@ -50,8 +52,12 @@ export function CostDetailModal({
   const rangeLabel = RANGE_LABELS[rangeKey as keyof typeof RANGE_LABELS] ?? rangeKey;
 
   return (
-    <div
+    <motion.div
       className="overlay-backdrop"
+      variants={backdropVariants}
+      initial="initial"
+      animate="enter"
+      exit="exit"
       role="dialog"
       aria-modal="true"
       aria-label={`成本明细 · ${model}`}
@@ -59,7 +65,10 @@ export function CostDetailModal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="panel overlay-card cost-modal rise">
+      <motion.div
+        className="panel overlay-card cost-modal"
+        variants={dialogVariants}
+      >
         <div className="panel-title">
           成本明细 · {model}
           <span className="muted" style={{ fontWeight: 500 }}>
@@ -135,7 +144,7 @@ export function CostDetailModal({
             )}
           </>
         )}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

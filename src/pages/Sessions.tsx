@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { SearchField } from "open-glass-ui";
 import { TrendChart } from "../components/TrendChart";
 import { api } from "../lib/ipc";
@@ -6,6 +7,7 @@ import { store, useStore } from "../lib/store";
 import type { SessionSummary } from "../lib/types";
 import { cacheHitRate, totalTokens } from "../lib/types";
 import { formatDateTime, formatRelative, formatTokens, shortSessionId } from "../lib/format";
+import { backdropVariants, dialogVariants, listItemVariants } from "../lib/motion";
 
 export function SessionsPage() {
   const sessions = useStore((s) => s.sessions);
@@ -54,9 +56,11 @@ export function SessionsPage() {
             </span>
           </div>
         )}
-        {filtered.slice(0, 200).map((s) => (
-          <SessionLine key={s.id} s={s} />
-        ))}
+        <AnimatePresence initial={false}>
+          {filtered.slice(0, 200).map((s) => (
+            <SessionLine key={s.id} s={s} />
+          ))}
+        </AnimatePresence>
         {filtered.length > 200 && (
           <div className="muted" style={{ padding: 10, fontSize: 11 }}>
             仅显示前 200 条(共 {filtered.length}),可导出全部数据。
@@ -64,51 +68,58 @@ export function SessionsPage() {
         )}
       </div>
 
-      {detail && (
-        <div
-          className="overlay-backdrop"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) store.set({ sessionDetail: null });
-          }}
-        >
-          <div className="panel overlay-card rise">
-            <div className="panel-title">
-              Session 详情 · {shortSessionId(detail.summary.id)}
-              <span className="right">
-                <button
-                  className="model-chip"
-                  onClick={() => store.set({ sessionDetail: null })}
-                >
-                  关闭
-                </button>
-              </span>
-            </div>
-            <div className="kv" style={{ marginBottom: 12 }}>
-              <span className="k">项目</span>
-              <span>{detail.summary.project ?? "—"}</span>
-              <span className="k">模型</span>
-              <span>{detail.summary.models.join(", ")}</span>
-              <span className="k">开始 → 最后活动</span>
-              <span>
-                {formatDateTime(detail.summary.agg.firstTsMs)} →{" "}
-                {formatDateTime(detail.summary.agg.lastTsMs)}
-              </span>
-              <span className="k">总 Token</span>
-              <span>{formatTokens(totalTokens(detail.summary.agg))}</span>
-            </div>
-            <TrendChart
-              trend={{
-                rangeKey: "session",
-                fromMs: detail.summary.agg.firstTsMs ?? 0,
-                toMs: detail.summary.agg.lastTsMs ?? 0,
-                buckets: detail.buckets,
-                restored: false,
-              }}
-              visibleModels={null}
-            />
-          </div>
-        </div>
-      )}
+      <AnimatePresence>
+        {detail && (
+          <motion.div
+            key={detail.summary.id}
+            className="overlay-backdrop"
+            variants={backdropVariants}
+            initial="initial"
+            animate="enter"
+            exit="exit"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) store.set({ sessionDetail: null });
+            }}
+          >
+            <motion.div className="panel overlay-card" variants={dialogVariants}>
+              <div className="panel-title">
+                Session 详情 · {shortSessionId(detail.summary.id)}
+                <span className="right">
+                  <button
+                    className="model-chip"
+                    onClick={() => store.set({ sessionDetail: null })}
+                  >
+                    关闭
+                  </button>
+                </span>
+              </div>
+              <div className="kv" style={{ marginBottom: 12 }}>
+                <span className="k">项目</span>
+                <span>{detail.summary.project ?? "—"}</span>
+                <span className="k">模型</span>
+                <span>{detail.summary.models.join(", ")}</span>
+                <span className="k">开始 → 最后活动</span>
+                <span>
+                  {formatDateTime(detail.summary.agg.firstTsMs)} →{" "}
+                  {formatDateTime(detail.summary.agg.lastTsMs)}
+                </span>
+                <span className="k">总 Token</span>
+                <span>{formatTokens(totalTokens(detail.summary.agg))}</span>
+              </div>
+              <TrendChart
+                trend={{
+                  rangeKey: "session",
+                  fromMs: detail.summary.agg.firstTsMs ?? 0,
+                  toMs: detail.summary.agg.lastTsMs ?? 0,
+                  buckets: detail.buckets,
+                  restored: false,
+                }}
+                visibleModels={null}
+              />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -116,8 +127,13 @@ export function SessionsPage() {
 function SessionLine({ s }: { s: SessionSummary }) {
   const hit = cacheHitRate(s.agg);
   return (
-    <div
+    <motion.div
       className="session-row"
+      layout="position"
+      variants={listItemVariants}
+      initial="initial"
+      animate="enter"
+      exit="exit"
       onClick={() => {
         api
           .sessionDetail(s.id)
@@ -156,6 +172,6 @@ function SessionLine({ s }: { s: SessionSummary }) {
           {formatRelative(s.agg.lastTsMs)}
         </div>
       </span>
-    </div>
+    </motion.div>
   );
 }

@@ -80,7 +80,10 @@ body {
   color: var(--zup-text-2);
   font-size: 13px;
   cursor: pointer;
-  transition: background 180ms ease, color 180ms ease;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  transition: color var(--zup-motion-control) ease;
   text-align: left;
 }
 
@@ -90,9 +93,24 @@ body {
 }
 
 .zup-nav-item.active {
-  background: color-mix(in srgb, var(--zup-blue-500) 15%, transparent);
+  background: transparent;
   color: var(--zup-blue-600);
   font-weight: 600;
+}
+
+.zup-nav-active {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--zup-blue-500) 15%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--zup-blue-500) 8%, transparent);
+}
+
+.zup-nav-content {
+  position: relative;
+  z-index: 1;
 }
 
 :root[data-theme="dark"] .zup-nav-item.active {
@@ -118,6 +136,10 @@ body {
   overflow-y: auto;
   padding: 4px 16px 20px 10px;
   min-width: 0;
+}
+
+.motion-page {
+  min-height: 100%;
 }
 
 .zup-content::-webkit-scrollbar {
@@ -157,7 +179,13 @@ body {
   box-shadow:
     0 1px 2px rgba(16, 35, 60, 0.05),
     0 12px 28px -14px rgba(16, 35, 60, 0.18);
-  transition: transform 180ms ease, box-shadow 180ms ease;
+  transition: box-shadow var(--zup-motion-control) ease;
+}
+
+.metric-card:hover {
+  box-shadow:
+    0 2px 5px rgba(16, 35, 60, 0.06),
+    0 18px 34px -18px rgba(31, 102, 224, 0.27);
 }
 
 :root[data-theme="dark"] .metric-card {
@@ -230,7 +258,7 @@ body {
   padding: 8px 10px;
   border-radius: 10px;
   cursor: pointer;
-  transition: background 160ms ease;
+  transition: background var(--zup-motion-control) var(--zup-ease-out);
   font-variant-numeric: tabular-nums;
 }
 
@@ -270,7 +298,11 @@ body {
   height: 100%;
   border-radius: 4px;
   background: linear-gradient(90deg, var(--zup-blue-500), var(--zup-cyan-400));
-  transition: width 220ms ease;
+  transition: width var(--zup-motion-surface) var(--zup-ease-out);
+}
+
+.share-fill.motion-driven {
+  transition: none;
 }
 
 .session-row {
@@ -281,7 +313,7 @@ body {
   padding: 8px 10px;
   border-radius: 10px;
   cursor: pointer;
-  transition: background 160ms ease;
+  transition: background var(--zup-motion-control) var(--zup-ease-out);
   font-variant-numeric: tabular-nums;
   font-size: 12px;
 }
@@ -331,6 +363,20 @@ body {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--zup-danger) 20%, transparent);
 }
 
+.status-dot.live {
+  animation: zup-status-breathe 2.8s ease-in-out infinite;
+}
+
+@keyframes zup-status-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--zup-ok) 18%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--zup-ok) 7%, transparent);
+  }
+}
+
 .badge-note {
   font-size: 10px;
   padding: 2px 7px;
@@ -357,7 +403,6 @@ body {
   align-items: center;
   justify-content: center;
   z-index: 60;
-  animation: zup-fade 180ms ease;
 }
 
 :root[data-theme="dark"] .overlay-backdrop {
@@ -391,30 +436,6 @@ body {
   box-shadow:
     0 24px 56px -22px rgb(0 0 0 / 0.55),
     0 0 0 1px rgb(255 255 255 / 0.08);
-}
-
-@keyframes zup-fade {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes zup-rise {
-  from {
-    opacity: 0;
-    transform: translateY(8px) scale(0.985);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-.rise {
-  animation: zup-rise 200ms ease;
 }
 
 .empty-state {
@@ -479,7 +500,10 @@ body {
   cursor: pointer;
   background: transparent;
   color: var(--zup-text-2);
-  transition: all 160ms ease;
+  transition:
+    border-color var(--zup-motion-fast) var(--zup-ease-out),
+    background-color var(--zup-motion-fast) var(--zup-ease-out),
+    color var(--zup-motion-fast) var(--zup-ease-out);
 }
 
 .model-chip.on {
@@ -573,7 +597,7 @@ body {
   padding: 8px 10px;
   border-radius: 10px;
   cursor: pointer;
-  transition: background 160ms ease;
+  transition: background var(--zup-motion-control) var(--zup-ease-out);
   font-variant-numeric: tabular-nums;
   font-size: 12px;
 }
@@ -666,7 +690,7 @@ body {
   cursor: pointer;
   background: color-mix(in srgb, #ffffff 55%, transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--zup-text-1) 7%, transparent);
-  transition: box-shadow 150ms ease, transform 150ms ease;
+  transition: box-shadow var(--zup-motion-surface) var(--zup-ease-out);
   display: flex;
   flex-direction: column;
   gap: 7px;

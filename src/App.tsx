@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GlassSystemProvider, Switch } from "open-glass-ui";
+import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion/react";
 import { api, onEvent } from "./lib/ipc";
+import { pageVariants, softSpring } from "./lib/motion";
 import { store, useStore } from "./lib/store";
 import type { RangeKey } from "./lib/types";
 import { RANGE_KEYS, RANGE_LABELS } from "./lib/types";
@@ -26,6 +28,9 @@ export function App() {
   const update = useStore((s) => s.update);
   const suspended = update?.suspended ?? false;
   const rangeKey = useStore((s) => s.rangeKey);
+  const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">(
+    theme === "dark" ? "dark" : "light",
+  );
 
   // ---- theme ---------------------------------------------------------------
   useEffect(() => {
@@ -38,6 +43,7 @@ export function App() {
           : t;
       document.documentElement.setAttribute("data-theme", resolved);
       localStorage.setItem("zup.theme", resolved);
+      setResolvedTheme(resolved as "light" | "dark");
     };
     apply(theme);
     if (theme === "system") {
@@ -175,8 +181,11 @@ export function App() {
           ["settings", "设置", "⚙"],
         ] as const
       ).map(([id, label, icon]) => (
-        <button
+        <motion.button
           key={id}
+          layout
+          whileTap={{ scale: 0.975 }}
+          transition={softSpring}
           className={`zup-nav-item ${page === id ? "active" : ""}`}
           onClick={() => {
             store.set({ page: id });
@@ -185,56 +194,76 @@ export function App() {
             }
           }}
         >
-          <span aria-hidden style={{ opacity: 0.7 }}>
+          {page === id && (
+            <motion.span
+              layoutId="zup-nav-active"
+              className="zup-nav-active"
+              transition={softSpring}
+            />
+          )}
+          <span className="zup-nav-content" aria-hidden style={{ opacity: 0.7 }}>
             {icon}
           </span>
-          {label}
-        </button>
+          <span className="zup-nav-content">{label}</span>
+        </motion.button>
       )),
     [page],
   );
 
   return (
-    <GlassSystemProvider theme={{ appearance: theme === "dark" ? "dark" : "light" }}>
-      <div className="zup-shell zup-frame">
-        <WindowFrame />
-        <TitleBar title="ZCode Usage Panel" onRefresh={refreshAll} />
-        <div className="zup-body">
-          <nav className="zup-nav">
-            {nav}
-            <div className="footnote">
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span
-                  className={`status-dot ${paused || suspended ? "paused" : update?.error ? "error" : ""}`}
-                />
-                {paused ? "已暂停监控" : suspended ? "窗口隐藏·挂起监控" : "实时监控中"}
+    <MotionConfig reducedMotion="user">
+      <GlassSystemProvider theme={{ appearance: resolvedTheme }}>
+        <div className="zup-shell zup-frame">
+          <WindowFrame />
+          <TitleBar title="ZCode Usage Panel" onRefresh={refreshAll} />
+          <div className="zup-body">
+            <nav className="zup-nav">
+              <LayoutGroup id="primary-navigation">{nav}</LayoutGroup>
+              <div className="footnote">
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span
+                    className={`status-dot ${paused || suspended ? "paused" : update?.error ? "error" : "live"}`}
+                  />
+                  {paused ? "已暂停监控" : suspended ? "窗口隐藏·挂起监控" : "实时监控中"}
+                </div>
+                {update?.lastRefreshMs ? (
+                  <div>更新 {formatClock(update.lastRefreshMs)}</div>
+                ) : null}
+                {update?.restoredFromCache && <div>显示缓存统计,同步中…</div>}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                  <span>实时</span>
+                  <Switch
+                    label={null}
+                    aria-label="实时监控开关"
+                    checked={!paused}
+                    onCheckedChange={(v) => {
+                      const s = store.get().settings;
+                      if (s) api.saveSettings({ ...s, monitoringPaused: !v }).catch(() => {});
+                    }}
+                  />
+                </div>
               </div>
-              {update?.lastRefreshMs ? (
-                <div>更新 {formatClock(update.lastRefreshMs)}</div>
-              ) : null}
-              {update?.restoredFromCache && <div>显示缓存统计,同步中…</div>}
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
-                <span>实时</span>
-                <Switch
-                  label={null}
-                  aria-label="实时监控开关"
-                  checked={!paused}
-                  onCheckedChange={(v) => {
-                    const s = store.get().settings;
-                    if (s) api.saveSettings({ ...s, monitoringPaused: !v }).catch(() => {});
-                  }}
-                />
-              </div>
-            </div>
-          </nav>
-          <main className="zup-content">
-            {page === "dashboard" && <DashboardPage onRangeChange={setRange} />}
-            {page === "sessions" && <SessionsPage />}
-            {page === "models" && <ModelsPage />}
-            {page === "settings" && <SettingsPage />}
-          </main>
+            </nav>
+            <main className="zup-content">
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={page}
+                  className="motion-page"
+                  variants={pageVariants}
+                  initial="initial"
+                  animate="enter"
+                  exit="exit"
+                >
+                  {page === "dashboard" && <DashboardPage onRangeChange={setRange} />}
+                  {page === "sessions" && <SessionsPage />}
+                  {page === "models" && <ModelsPage />}
+                  {page === "settings" && <SettingsPage />}
+                </motion.div>
+              </AnimatePresence>
+            </main>
+          </div>
         </div>
-      </div>
-    </GlassSystemProvider>
+      </GlassSystemProvider>
+    </MotionConfig>
   );
 }

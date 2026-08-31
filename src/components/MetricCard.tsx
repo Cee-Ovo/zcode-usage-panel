@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { motion } from "motion/react";
+import { cardVariants, softSpring } from "../lib/motion";
 
 /** Metric card with an optional tooltip (title attr keeps it dependency-free). */
 export function MetricCard({
@@ -15,7 +17,14 @@ export function MetricCard({
   unavailable?: boolean;
 }) {
   return (
-    <div className="metric-card" title={hint}>
+    <motion.div
+      layout
+      variants={cardVariants}
+      whileHover={{ y: -2 }}
+      transition={softSpring}
+      className="metric-card"
+      title={hint}
+    >
       <div className="label">
         {label}
         {hint && <InfoDot text={hint} />}
@@ -24,7 +33,7 @@ export function MetricCard({
         {value}
       </div>
       {sub && <div className="sub">{sub}</div>}
-    </div>
+    </motion.div>
   );
 }
 

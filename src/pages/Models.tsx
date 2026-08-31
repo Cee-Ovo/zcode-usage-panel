@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { AnimatedNumber } from "../components/AnimatedNumber";
 import { MetricCard } from "../components/MetricCard";
 import { TrendChart } from "../components/TrendChart";
 import { api } from "../lib/ipc";
 import { store, useStore } from "../lib/store";
+import type { ModelDetailDto } from "../lib/types";
 import { cacheHitRate, totalTokens } from "../lib/types";
 import { formatCny, formatFull, formatPercent, formatRelative, formatTokens, shortSessionId } from "../lib/format";
+import { backdropVariants, dialogVariants, listItemVariants } from "../lib/motion";
 
 export function ModelsPage() {
   const dash = useStore((s) => s.dash);
@@ -22,58 +25,69 @@ export function ModelsPage() {
       <div className="panel">
         <div className="panel-title">全部模型(当前时间范围)</div>
         {dash.models.length === 0 && <div className="empty-state">该范围内没有模型调用</div>}
-        {dash.models.map((m, i) => (
-          <div
-            key={m.name}
-            className="model-row"
-            onClick={() =>
-              api.modelDetail(m.name).then((d) => store.set({ modelDetail: d })).catch(() => {})
-            }
-            title="点击查看模型详情"
-          >
-            <div>
-              <div className="name">
-                <span className="muted" style={{ marginRight: 6 }}>
-                  {i + 1}.
-                </span>
-                {m.name}
+        <AnimatePresence initial={false}>
+          {dash.models.map((m, i) => (
+            <motion.div
+              key={m.name}
+              className="model-row"
+              layout="position"
+              variants={listItemVariants}
+              initial="initial"
+              animate="enter"
+              exit="exit"
+              onClick={() =>
+                api
+                  .modelDetail(m.name)
+                  .then((d) => store.set({ modelDetail: d }))
+                  .catch(() => {})
+              }
+              title="点击查看模型详情"
+            >
+              <div>
+                <div className="name">
+                  <span className="muted" style={{ marginRight: 6 }}>
+                    {i + 1}.
+                  </span>
+                  {m.name}
+                </div>
+                <div className="share-track">
+                  <div className="share-fill" style={{ width: `${Math.round(m.share * 100)}%` }} />
+                </div>
               </div>
-              <div className="share-track">
-                <div className="share-fill" style={{ width: `${Math.round(m.share * 100)}%` }} />
-              </div>
-            </div>
-            <span className="num">{formatTokens(totalTokens(m.agg))}</span>
-            <span className="num">{(m.share * 100).toFixed(1)}%</span>
-            <span className="num">{formatTokens(m.agg.input)}</span>
-            <span className="num">{formatTokens(m.agg.output)}</span>
-            <span className="num">
-              {m.agg.reasoning.present > 0 ? formatTokens(m.agg.reasoning.sum) : "—"}
-            </span>
-            <span className="num">
-              {m.agg.cacheRead.present > 0 ? formatTokens(m.agg.cacheRead.sum) : "—"}
-            </span>
-            <span className="num">
-              {cacheHitRate(m.agg) === null
-                ? "—"
-                : `${(cacheHitRate(m.agg)! * 100).toFixed(0)}% · ${formatFull(m.agg.requests)}`}
-            </span>
-            <span className="num" style={{ color: "var(--zup-blue-600)" }}>
-              {(() => {
-                const c = costByModel.get(m.name);
-                return c?.priced ? `≈ ${formatCny(c.costCny)}` : "价格未知";
-              })()}
-            </span>
-          </div>
-        ))}
+              <span className="num">{formatTokens(totalTokens(m.agg))}</span>
+              <span className="num">{(m.share * 100).toFixed(1)}%</span>
+              <span className="num">{formatTokens(m.agg.input)}</span>
+              <span className="num">{formatTokens(m.agg.output)}</span>
+              <span className="num">
+                {m.agg.reasoning.present > 0 ? formatTokens(m.agg.reasoning.sum) : "—"}
+              </span>
+              <span className="num">
+                {m.agg.cacheRead.present > 0 ? formatTokens(m.agg.cacheRead.sum) : "—"}
+              </span>
+              <span className="num">
+                {cacheHitRate(m.agg) === null
+                  ? "—"
+                  : `${(cacheHitRate(m.agg)! * 100).toFixed(0)}% · ${formatFull(m.agg.requests)}`}
+              </span>
+              <span className="num" style={{ color: "var(--zup-blue-600)" }}>
+                {(() => {
+                  const c = costByModel.get(m.name);
+                  return c?.priced ? `≈ ${formatCny(c.costCny)}` : "价格未知";
+                })()}
+              </span>
+            </motion.div>
+          ))}
+        </AnimatePresence>
       </div>
 
-      {detail && <ModelDetailCard />}
+      <AnimatePresence>
+        {detail && <ModelDetailCard key={detail.name} detail={detail} />}
+      </AnimatePresence>
     </div>
   );
 }
 
-function ModelDetailCard() {
-  const detail = useStore((s) => s.modelDetail)!;
+function ModelDetailCard({ detail }: { detail: ModelDetailDto }) {
   const [, tick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => tick((x) => x + 1), 30_000);
@@ -84,13 +98,18 @@ function ModelDetailCard() {
     detail.allTime.input + detail.allTime.output + detail.allTime.reasoning.sum || 1;
 
   return (
-    <div
+    <motion.div
+      key={detail.name}
       className="overlay-backdrop"
+      variants={backdropVariants}
+      initial="initial"
+      animate="enter"
+      exit="exit"
       onClick={(e) => {
         if (e.target === e.currentTarget) store.set({ modelDetail: null });
       }}
     >
-      <div className="panel overlay-card rise">
+      <motion.div className="panel overlay-card" variants={dialogVariants}>
         <div className="panel-title">
           模型详情 · {detail.name}
           <span className="right">
@@ -179,7 +198,7 @@ function ModelDetailCard() {
             <span style={{ width: 70, textAlign: "right" }}>{formatTokens(tokens)}</span>
           </div>
         ))}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

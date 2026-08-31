@@ -19,6 +19,12 @@
   --zup-warn: #f5a524;
   --zup-ok: #29a383;
 
+  /* Shared interaction rhythm: quick controls, calm surfaces, faster exits. */
+  --zup-motion-fast: 120ms;
+  --zup-motion-control: 170ms;
+  --zup-motion-surface: 240ms;
+  --zup-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
   /* Series colors for charts */
   --zup-series-input: #7fb5f2;
   --zup-series-output: #2f7bf6;

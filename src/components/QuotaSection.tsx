@@ -1,5 +1,14 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { api } from "../lib/ipc";
+import {
+  backdropVariants,
+  cardVariants,
+  dialogVariants,
+  progressSpring,
+  softSpring,
+  staggerContainer,
+} from "../lib/motion";
 import { useStore } from "../lib/store";
 import type {
   HistoryPointDto,
@@ -76,12 +85,25 @@ export const QuotaSection = memo(function QuotaSection() {
           </button>
         </span>
       </div>
-      <div className="quota-grid">
+      <motion.div
+        className="quota-grid"
+        variants={staggerContainer}
+        initial="initial"
+        animate="enter"
+      >
         {providers.map((p) => (
           <ProviderCard key={p.provider} snap={p} onDetail={() => setDetail(p.provider)} />
         ))}
-      </div>
-      {detail && <ProviderDetailModal provider={detail} onClose={() => setDetail(null)} />}
+      </motion.div>
+      <AnimatePresence>
+        {detail && (
+          <ProviderDetailModal
+            key={detail}
+            provider={detail}
+            onClose={() => setDetail(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 });
@@ -97,7 +119,12 @@ function ProviderCard({ snap, onDetail }: { snap: ProviderSnapshot; onDetail: ()
   };
 
   return (
-    <div
+    <motion.div
+      layout
+      variants={cardVariants}
+      whileHover={{ y: -2 }}
+      whileTap={{ scale: 0.992 }}
+      transition={softSpring}
       className={`quota-card status-${statusClass}`}
       onClick={onDetail}
       title={`数据来源:${snap.source}\n点击查看详情`}
@@ -182,7 +209,7 @@ function ProviderCard({ snap, onDetail }: { snap: ProviderSnapshot; onDetail: ()
         <span title={snap.source}>{formatRelative(snap.updatedAtMs)}</span>
         <span className="muted">详情 ›</span>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -207,9 +234,11 @@ function QuotaRow({ w }: { w: QuotaWindow }) {
       </div>
       {pct !== null && (
         <div className="share-track">
-          <div
-            className={`share-fill ${critical ? "critical" : ""}`}
-            style={{ width: `${Math.min(100, Math.max(0, pct)).toFixed(1)}%` }}
+          <motion.div
+            className={`share-fill motion-driven ${critical ? "critical" : ""}`}
+            initial={{ width: 0 }}
+            animate={{ width: `${Math.min(100, Math.max(0, pct)).toFixed(1)}%` }}
+            transition={progressSpring}
           />
         </div>
       )}
@@ -303,8 +332,19 @@ function ProviderDetailModal({ provider, onClose }: { provider: string; onClose:
   const label = PROVIDER_LABELS[provider] ?? provider;
 
   return (
-    <div className="overlay-backdrop" onClick={onClose}>
-      <div className="panel overlay-card quota-detail rise" onClick={(e) => e.stopPropagation()}>
+    <motion.div
+      className="overlay-backdrop"
+      variants={backdropVariants}
+      initial="initial"
+      animate="enter"
+      exit="exit"
+      onClick={onClose}
+    >
+      <motion.div
+        className="panel overlay-card quota-detail"
+        variants={dialogVariants}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="panel-title">
           <span>
             {label} · 额度详情
@@ -399,8 +439,8 @@ function ProviderDetailModal({ provider, onClose }: { provider: string; onClose:
             <DailyConsumptionBars data={consumption} />
           </>
         )}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 

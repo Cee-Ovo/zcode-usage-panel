@@ -17,6 +17,7 @@
   "packageManager": "npm@10.8.2",
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
+    "motion": "^12.43.0",
     "open-glass-ui": "^0.3.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

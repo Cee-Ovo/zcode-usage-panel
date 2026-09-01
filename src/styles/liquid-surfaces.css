@@ -1,0 +1,96 @@
+/* Restrained optical layer for data surfaces. The pointer position is written
+   directly to CSS variables by the component, so movement causes no React
+   render and no idle animation loop. */
+
+.liquid-metric,
+.codex-panel,
+.panel {
+  position: relative;
+  isolation: isolate;
+}
+
+.liquid-metric {
+  --liquid-x: 50%;
+  --liquid-y: 0px;
+  overflow: hidden;
+}
+
+.liquid-metric::before,
+.codex-panel::before,
+.panel::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(
+      150px circle at var(--liquid-x, 32%) var(--liquid-y, 0%),
+      rgb(255 255 255 / 0.58),
+      rgb(162 213 255 / 0.15) 34%,
+      transparent 68%
+    );
+  transition: opacity 220ms var(--zup-ease-out);
+}
+
+.liquid-metric::after,
+.codex-panel::after,
+.panel::after {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.72),
+    inset 1px 0 0 rgb(255 255 255 / 0.22),
+    inset 0 -1px 0 rgb(56 123 205 / 0.09);
+}
+
+.liquid-metric:hover::before,
+.codex-panel:hover::before,
+.panel:hover::before {
+  opacity: 1;
+}
+
+:root[data-theme="dark"] .liquid-metric::before,
+:root[data-theme="dark"] .codex-panel::before,
+:root[data-theme="dark"] .panel::before {
+  background: radial-gradient(
+    160px circle at var(--liquid-x, 32%) var(--liquid-y, 0%),
+    rgb(139 199 255 / 0.22),
+    rgb(76 143 232 / 0.08) 36%,
+    transparent 70%
+  );
+}
+
+:root[data-theme="dark"] .liquid-metric::after,
+:root[data-theme="dark"] .codex-panel::after,
+:root[data-theme="dark"] .panel::after {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.16),
+    inset 1px 0 0 rgb(255 255 255 / 0.07),
+    inset 0 -1px 0 rgb(16 30 52 / 0.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liquid-metric::before,
+  .codex-panel::before,
+  .panel::before {
+    transition: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce), (forced-colors: active) {
+  .liquid-metric::before,
+  .liquid-metric::after,
+  .codex-panel::before,
+  .codex-panel::after,
+  .panel::before,
+  .panel::after {
+    display: none;
+  }
+}

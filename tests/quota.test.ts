@@ -114,6 +114,7 @@ describe("quota display model", () => {
         },
         sessions: 1,
         models: [],
+        ranges: [],
       },
       launcher: null,
       source: "test",

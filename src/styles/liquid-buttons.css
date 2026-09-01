@@ -1,0 +1,141 @@
+/* Local, compositor-friendly liquid glass treatment for FxButton. */
+.fx-press {
+  --fx-pointer-x: 50%;
+  --fx-pointer-y: 35%;
+  isolation: isolate;
+}
+
+.fx-press > .fx-btn {
+  position: relative;
+  z-index: 1;
+  transform-origin: center;
+}
+
+.fx-liquid-layer {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  transition:
+    opacity 180ms var(--zup-ease-out, cubic-bezier(0.22, 1, 0.36, 1)),
+    transform 220ms var(--zup-ease-out, cubic-bezier(0.22, 1, 0.36, 1));
+}
+
+/* A small, pointer-local highlight is quieter than a broad glow. */
+.fx-liquid-layer--highlight {
+  z-index: 2;
+  opacity: 0;
+  background: radial-gradient(
+    ellipse 48% 68% at var(--fx-pointer-x) var(--fx-pointer-y),
+    rgb(255 255 255 / 0.26),
+    rgb(255 255 255 / 0.08) 34%,
+    transparent 72%
+  );
+  mix-blend-mode: screen;
+}
+
+/* A faint inner rim makes the press read as a soft material deformation. */
+.fx-liquid-layer--rim {
+  z-index: 2;
+  inset: 0.5px;
+  opacity: 0.34;
+  border: 1px solid rgb(255 255 255 / 0.3);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.18),
+    inset 0 -1px 0 rgb(0 0 0 / 0.08);
+}
+
+.fx-press:hover .fx-liquid-layer--highlight {
+  opacity: 1;
+}
+
+.fx-press:active .fx-liquid-layer--highlight {
+  transform: scaleX(1.01) scaleY(0.95);
+}
+
+.fx-press:active .fx-liquid-layer--rim {
+  transform: scaleX(1.018) scaleY(0.94);
+  opacity: 0.46;
+}
+
+/* Quiet and destructive actions should keep their feedback close to the
+   surface instead of looking like primary calls to action. */
+.fx-press--quiet .fx-liquid-layer--highlight {
+  background: radial-gradient(
+    ellipse 42% 60% at var(--fx-pointer-x) var(--fx-pointer-y),
+    rgb(255 255 255 / 0.15),
+    transparent 72%
+  );
+}
+
+.fx-press--quiet .fx-liquid-layer--rim {
+  opacity: 0.2;
+}
+
+.fx-press--danger .fx-liquid-layer--highlight {
+  background: radial-gradient(
+    ellipse 44% 62% at var(--fx-pointer-x) var(--fx-pointer-y),
+    rgb(255 255 255 / 0.12),
+    transparent 72%
+  );
+}
+
+.fx-press--danger .fx-liquid-layer--rim {
+  opacity: 0.25;
+  border-color: color-mix(in srgb, currentColor 22%, transparent);
+}
+
+/* The overlay intentionally remains pointer-transparent; the wrapper owns
+   hover state so the one-shot sweep is reachable over the button surface. */
+.fx-sweep-trigger:hover .fx-sweep::after {
+  transition: transform 560ms var(--zup-ease-out, cubic-bezier(0.22, 1, 0.36, 1));
+  transform: translateX(130%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-liquid-layer {
+    transition: none;
+    transform: none !important;
+  }
+
+  .fx-liquid-layer--highlight {
+    opacity: 0.12;
+    background: rgb(255 255 255 / 0.08);
+  }
+
+  .fx-press:hover .fx-liquid-layer--highlight,
+  .fx-press:active .fx-liquid-layer--highlight {
+    opacity: 0.12;
+  }
+
+  .fx-press:active .fx-liquid-layer--rim {
+    opacity: 0.34;
+  }
+
+  .fx-sweep-trigger:hover .fx-sweep::after {
+    transition: none;
+    transform: translateX(-130%);
+  }
+}
+
+:root[data-theme="dark"] .fx-liquid-layer--highlight {
+  background: radial-gradient(
+    ellipse 48% 68% at var(--fx-pointer-x) var(--fx-pointer-y),
+    rgb(255 255 255 / 0.2),
+    rgb(150 205 255 / 0.08) 34%,
+    transparent 72%
+  );
+}
+
+:root[data-theme="dark"] .fx-liquid-layer--rim {
+  border-color: rgb(255 255 255 / 0.22);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.15),
+    inset 0 -1px 0 rgb(0 0 0 / 0.18);
+}
+
+@media (prefers-reduced-transparency: reduce), (forced-colors: active) {
+  .fx-liquid-layer {
+    display: none;
+  }
+}

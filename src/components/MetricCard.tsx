@@ -22,8 +22,17 @@ export function MetricCard({
       variants={cardVariants}
       whileHover={{ y: -2 }}
       transition={softSpring}
-      className="metric-card"
+      className="metric-card liquid-metric"
       title={hint}
+      onPointerMove={(event) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        event.currentTarget.style.setProperty("--liquid-x", `${event.clientX - rect.left}px`);
+        event.currentTarget.style.setProperty("--liquid-y", `${event.clientY - rect.top}px`);
+      }}
+      onPointerLeave={(event) => {
+        event.currentTarget.style.setProperty("--liquid-x", "50%");
+        event.currentTarget.style.setProperty("--liquid-y", "0px");
+      }}
     >
       <div className="label">
         {label}

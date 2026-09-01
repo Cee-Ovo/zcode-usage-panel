@@ -84,7 +84,12 @@ pub struct Forecast {
 
 impl Default for Forecast {
     fn default() -> Self {
-        Self { eta_ms: 0, rate_per_day: 0.0, samples: 0, confidence: "low".into() }
+        Self {
+            eta_ms: 0,
+            rate_per_day: 0.0,
+            samples: 0,
+            confidence: "low".into(),
+        }
     }
 }
 
@@ -129,10 +134,11 @@ impl QuotaWindow {
     /// Effective usage percent, preferring the official value and falling
     /// back to a computed one only when both totals exist.
     pub fn effective_percent(&self) -> Option<f64> {
-        self.used_percent.or_else(|| match (self.used_quota, self.total_quota) {
-            (Some(u), Some(t)) if t > 0.0 => Some((u / t) * 100.0),
-            _ => None,
-        })
+        self.used_percent
+            .or_else(|| match (self.used_quota, self.total_quota) {
+                (Some(u), Some(t)) if t > 0.0 => Some((u / t) * 100.0),
+                _ => None,
+            })
     }
 }
 
@@ -200,12 +206,22 @@ pub struct ModelUsageRow {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
+pub struct LocalUsageRange {
+    pub key: String,
+    pub breakdown: TokenBreakdown,
+    pub sessions: u64,
+    pub models: Vec<ModelUsageRow>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
 pub struct LocalUsage {
     pub today: TokenBreakdown,
     pub last_7d: TokenBreakdown,
     pub all_time: TokenBreakdown,
     pub sessions: u64,
     pub models: Vec<ModelUsageRow>,
+    pub ranges: Vec<LocalUsageRange>,
 }
 
 /// Launcher status for the ZCode quick-start card/tray entries.
@@ -224,7 +240,12 @@ pub struct LauncherStatus {
 
 impl Default for LauncherStatus {
     fn default() -> Self {
-        Self { state: "not_installed".into(), exe_path: None, version: None, detected_via: None }
+        Self {
+            state: "not_installed".into(),
+            exe_path: None,
+            version: None,
+            detected_via: None,
+        }
     }
 }
 
@@ -295,7 +316,10 @@ mod tests {
 
     #[test]
     fn effective_percent_prefers_official_then_computes() {
-        let mut w = QuotaWindow { key: "5h".into(), ..Default::default() };
+        let mut w = QuotaWindow {
+            key: "5h".into(),
+            ..Default::default()
+        };
         w.used_percent = Some(72.0);
         assert!((w.effective_percent().unwrap() - 72.0).abs() < 1e-9);
         w.used_percent = None;

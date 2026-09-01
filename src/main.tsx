@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "open-glass-ui/styles.css";
 import "./styles/theme.css";
 import "./styles/global.css";
+import "./styles/liquid-surfaces.css";
 import { App } from "./App";
 import { store, type AppState } from "./lib/store";
 

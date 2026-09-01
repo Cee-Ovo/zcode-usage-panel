@@ -3,9 +3,10 @@ import { AnimatePresence, motion } from "motion/react";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { InfoDot } from "./MetricCard";
 import { FxChip } from "./fx";
+import { LiquidSegmentedControl } from "./LiquidSegmentedControl";
 import { ProviderDetailModal } from "./QuotaSection";
 import { useStore } from "../lib/store";
-import type { ModelUsageRow } from "../lib/types";
+import type { LocalUsage, LocalUsageRange, ModelUsageRow } from "../lib/types";
 import { PROVIDER_STATUS_LABELS } from "../lib/types";
 import { displayModelName } from "../lib/modelDisplay";
 import { formatFull, formatTokens } from "../lib/format";
@@ -25,20 +26,64 @@ import { cardVariants, softSpring } from "../lib/motion";
  */
 
 const CODEX_EXPLAIN =
-  "Codex Token = 本地 Codex 客户端 session 日志统计(Input+Cached+CacheWrite+Output+Reasoning,离线读取)。\n" +
+  "Codex Token = 本地 Codex 客户端 session 日志中提供的 total_tokens 原值;Cached / Cache Write 作为分项展示,不会重复加到总量中。\n" +
   "它与「ZCode 总 Token」分开统计、互不计入;与服务额度区的 Codex 官方套餐额度(5 小时/周 rate_limits)也是两个独立指标。\n" +
   "本地 Token 统计 ≠ 官方剩余额度 ≠ 实际 Billing。";
+
+const CODEX_RANGE_KEYS = ["today", "60m", "24h", "7d", "30d", "all"] as const;
+type CodexRangeKey = (typeof CODEX_RANGE_KEYS)[number];
+
+const CODEX_RANGE_LABELS: Record<CodexRangeKey, string> = {
+  today: "今天",
+  "60m": "60 分钟",
+  "24h": "24 小时",
+  "7d": "7 天",
+  "30d": "30 天",
+  all: "全部",
+};
+
+/** Compatibility fallback while a provider snapshot from the old DTO is still in memory. */
+function selectedUsageRange(usage: LocalUsage, key: CodexRangeKey): LocalUsageRange | null {
+  const exact = usage.ranges?.find((range) => range.key === key);
+  if (exact) return exact;
+  if (key === "today") {
+    return { key, breakdown: usage.today, sessions: usage.sessions, models: usage.models };
+  }
+  if (key === "7d") {
+    return { key, breakdown: usage.last7d, sessions: usage.sessions, models: usage.models };
+  }
+  if (key === "all") {
+    return { key, breakdown: usage.allTime, sessions: usage.sessions, models: usage.models };
+  }
+  return null;
+}
 
 export function CodexUsagePanel() {
   const codex = useStore((s) => s.providers.find((p) => p.provider === "codex") ?? null);
   const loading = useStore((s) => s.providers.length === 0);
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState(false);
+  const [rangeKey, setRangeKey] = useState<CodexRangeKey>("today");
 
   const usage = codex?.localUsage ?? null;
+  const selected = usage ? selectedUsageRange(usage, rangeKey) : null;
 
   return (
-    <motion.div className="codex-panel" variants={cardVariants}>
+    <motion.div
+      className="codex-panel"
+      variants={cardVariants}
+      whileHover={{ y: -1 }}
+      transition={softSpring}
+      onPointerMove={(event) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        event.currentTarget.style.setProperty("--liquid-x", `${event.clientX - rect.left}px`);
+        event.currentTarget.style.setProperty("--liquid-y", `${event.clientY - rect.top}px`);
+      }}
+      onPointerLeave={(event) => {
+        event.currentTarget.style.setProperty("--liquid-x", "32%");
+        event.currentTarget.style.setProperty("--liquid-y", "0px");
+      }}
+    >
       <div className="panel-title" style={{ marginBottom: 0 }}>
         Codex 本地 Token 用量
         <span className="muted" style={{ fontWeight: 500, fontSize: 10.5 }}>
@@ -67,51 +112,102 @@ export function CodexUsagePanel() {
         />
       ) : (
         <>
-          <div className="codex-headline">
-            <span className="muted" style={{ fontSize: 12 }}>
-              今日
-            </span>
-            <span className="big">
-              <AnimatedNumber value={usage.today.totalTokens} format={formatTokens} />
-            </span>
-            <span className="muted" style={{ fontSize: 11 }}>
-              tokens
-            </span>
-            <span style={{ marginLeft: "auto" }}>
-              <InfoDot text={CODEX_EXPLAIN} />
-            </span>
+          <div className="codex-range-control">
+            <LiquidSegmentedControl
+              aria-label="Codex 本地 Token 时间范围"
+              value={rangeKey}
+              onValueChange={(value) => {
+                setRangeKey(value);
+                setExpanded(false);
+              }}
+              items={CODEX_RANGE_KEYS.map((key) => ({
+                value: key,
+                label: CODEX_RANGE_LABELS[key],
+              }))}
+            />
           </div>
 
-          <div className="codex-mini">
-            <span>
-              <span className="k">7 天 </span>
-              {formatTokens(usage.last7d.totalTokens)}
-            </span>
-            <span>
-              <span className="k">累计 </span>
-              {formatTokens(usage.allTime.totalTokens)}
-            </span>
-            <span>
-              <span className="k">Sessions </span>
-              {formatFull(usage.sessions)}
-            </span>
-            <span>
-              <span className="k">今日请求 </span>
-              {formatFull(usage.today.requests)}
-            </span>
-          </div>
+          <AnimatePresence mode="wait" initial={false}>
+            {selected ? (
+              <motion.div
+                key={rangeKey}
+                className="codex-range-content"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+              >
+                <div className="codex-headline">
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    {CODEX_RANGE_LABELS[rangeKey]}
+                  </span>
+                  <span className="big">
+                    <AnimatedNumber value={selected.breakdown.totalTokens} format={formatTokens} />
+                  </span>
+                  <span className="muted" style={{ fontSize: 11 }}>
+                    tokens
+                  </span>
+                  <span style={{ marginLeft: "auto" }}>
+                    <InfoDot text={CODEX_EXPLAIN} />
+                  </span>
+                </div>
 
-          <div className="codex-breakdown">
-            <span className="codex-part">Input {formatTokens(usage.today.inputTokens)}</span>
-            <span className="codex-part">Cached {formatTokens(usage.today.cachedInputTokens)}</span>
-            <span className="codex-part">Cache 写 {formatTokens(usage.today.cacheWriteTokens)}</span>
-            <span className="codex-part">Output {formatTokens(usage.today.outputTokens)}</span>
-            <span className="codex-part">Reasoning {formatTokens(usage.today.reasoningTokens)}</span>
-          </div>
+                <div className="codex-mini">
+                  <span>
+                    <span className="k">Sessions </span>
+                    {formatFull(selected.sessions)}
+                  </span>
+                  <span>
+                    <span className="k">请求 </span>
+                    {formatFull(selected.breakdown.requests)}
+                  </span>
+                  <span>
+                    <span className="k">模型 </span>
+                    {formatFull(selected.models.length)}
+                  </span>
+                </div>
 
-          {usage.models.length > 0 && (
-            <CodexModelList models={usage.models} expanded={expanded} onToggle={setExpanded} />
-          )}
+                <div className="codex-breakdown">
+                  <span className="codex-part">
+                    Input {formatTokens(selected.breakdown.inputTokens)}
+                  </span>
+                  <span className="codex-part">
+                    Cached {formatTokens(selected.breakdown.cachedInputTokens)}
+                  </span>
+                  <span className="codex-part">
+                    Cache 写 {formatTokens(selected.breakdown.cacheWriteTokens)}
+                  </span>
+                  <span className="codex-part">
+                    Output {formatTokens(selected.breakdown.outputTokens)}
+                  </span>
+                  <span className="codex-part">
+                    Reasoning {formatTokens(selected.breakdown.reasoningTokens)}
+                  </span>
+                </div>
+
+                {selected.models.length > 0 && (
+                  <CodexModelList
+                    models={selected.models}
+                    rangeLabel={CODEX_RANGE_LABELS[rangeKey]}
+                    expanded={expanded}
+                    onToggle={setExpanded}
+                  />
+                )}
+              </motion.div>
+            ) : (
+              <motion.div
+                key={`${rangeKey}-unavailable`}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <UnavailableLine
+                  text={`${CODEX_RANGE_LABELS[rangeKey]}统计 unavailable`}
+                  hint="等待 Codex Provider 完成新版范围统计后自动出现。"
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <div className="codex-note">
             来自本地 Codex session 日志 · 与官方套餐额度(5 小时/周)分开统计 · 不等于实际
@@ -144,13 +240,15 @@ function UnavailableLine({ text, hint }: { text: string; hint?: string }) {
   );
 }
 
-/** Codex 模型用量(累计,按总量降序)。前 3 行 + 展开;名称统一带（Codex）标记。 */
+/** Codex 模型用量(当前范围,按总量降序)。前 3 行 + 展开;名称统一带（Codex）标记。 */
 function CodexModelList({
   models,
+  rangeLabel,
   expanded,
   onToggle,
 }: {
   models: ModelUsageRow[];
+  rangeLabel: string;
   expanded: boolean;
   onToggle: (v: boolean) => void;
 }) {
@@ -170,7 +268,7 @@ function CodexModelList({
             exit={{ opacity: 0 }}
             transition={softSpring}
             title={
-              `${displayModelName(m.model, "codex")} · 累计\n` +
+              `${displayModelName(m.model, "codex")} · ${rangeLabel}\n` +
               `Total ${formatFull(m.breakdown.totalTokens)}\n` +
               `Input ${formatFull(m.breakdown.inputTokens)} · Cached ${formatFull(m.breakdown.cachedInputTokens)}\n` +
               `Output ${formatFull(m.breakdown.outputTokens)} · Reasoning ${formatFull(m.breakdown.reasoningTokens)}`

@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { SegmentedControl } from "open-glass-ui";
 import { AnimatePresence, motion } from "motion/react";
 import { AnimatedNumber } from "../components/AnimatedNumber";
 import { CodexUsagePanel } from "../components/CodexUsagePanel";
@@ -8,6 +7,7 @@ import { MetricCard, InfoDot } from "../components/MetricCard";
 import { QuotaSection } from "../components/QuotaSection";
 import { TrendChart } from "../components/TrendChart";
 import { FxButton, useAction } from "../components/fx";
+import { LiquidSegmentedControl } from "../components/LiquidSegmentedControl";
 import { api } from "../lib/ipc";
 import { listItemVariants, rowGestures, softSpring, staggerContainer } from "../lib/motion";
 import { store, useStore } from "../lib/store";
@@ -67,7 +67,7 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
     >
       {/* range selector */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <SegmentedControl
+        <LiquidSegmentedControl
           aria-label="时间范围"
           value={rangeKey}
           onValueChange={(v) => onRangeChange(v)}

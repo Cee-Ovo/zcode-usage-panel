@@ -10,6 +10,7 @@ import {
 } from "react";
 import { Button } from "open-glass-ui";
 import { motion, useReducedMotion } from "motion/react";
+import "../styles/liquid-buttons.css";
 import {
   buttonGestures,
   popSpring,
@@ -221,17 +222,24 @@ export function FxButton({
   const { onPointerDown, elements } = useRipple(variant === "primary" || variant === "danger");
   const mag = useMagnetic(2);
   const reduce = useReducedMotion();
-
-  const gestures = disabled
-    ? {}
-    : magnetic
-      ? { whileHover: { scale: 1.02 }, whileTap: { scale: 0.968 } }
-      : variant === "quiet"
-        ? quietButtonGestures
-        : buttonGestures;
-
   const busy = action?.busy ?? false;
   const phase = action?.phase ?? "idle";
+
+  const gestures = disabled || busy || reduce
+    ? {}
+    : magnetic
+      ? {
+          whileHover: { scale: 1.015, y: -1 },
+          whileTap: { scale: 0.96, scaleX: 1.02, scaleY: 0.975 },
+        }
+      : variant === "quiet"
+        ? { ...quietButtonGestures, whileTap: { scale: 0.96, scaleX: 1.012, scaleY: 0.98 } }
+        : variant === "danger"
+          ? {
+              whileHover: { scale: 1.006, y: -0.5 },
+              whileTap: { scale: 0.96, scaleX: 1.008, scaleY: 0.98 },
+            }
+          : { ...buttonGestures, whileHover: { scale: 1.012, y: -1 }, whileTap: { scale: 0.96, scaleX: 1.015, scaleY: 0.978 } };
 
   const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     if (action) {
@@ -242,14 +250,33 @@ export function FxButton({
     }
   };
 
+  // Keep the local specular light on the compositor path. Updating the
+  // wrapper's custom properties directly avoids a React render per move.
+  const handlePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    const rect = target.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    target.style.setProperty("--fx-pointer-x", `${Math.max(0, Math.min(100, x))}%`);
+    target.style.setProperty("--fx-pointer-y", `${Math.max(0, Math.min(100, y))}%`);
+    if (magnetic) mag.onPointerMove(e);
+  };
+
+  const handlePointerLeave = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.currentTarget.style.setProperty("--fx-pointer-x", "50%");
+    e.currentTarget.style.setProperty("--fx-pointer-y", "35%");
+    if (magnetic) mag.onPointerLeave();
+  };
+
   return (
     <motion.div
-      className={`fx-press ${phase === "error" ? "fx-shake" : ""} ${magnetic && !reduce ? "fx-magnet" : ""}`}
+      className={`fx-press fx-press--${variant} ${phase === "error" ? "fx-shake" : ""} ${magnetic && !reduce ? "fx-magnet" : ""} ${variant === "primary" && showRipple ? "fx-sweep-trigger" : ""}`}
       style={{ display: "inline-flex", borderRadius: "var(--ogui-radius-control, 0.8rem)" }}
       {...gestures}
       animate={magnetic && !reduce ? { x: mag.pos.x, y: mag.pos.y } : undefined}
-      onPointerMove={magnetic ? mag.onPointerMove : undefined}
-      onPointerLeave={magnetic ? mag.onPointerLeave : undefined}
+      onPointerMove={handlePointerMove}
+      onPointerLeave={handlePointerLeave}
       onPointerDown={showRipple ? onPointerDown : undefined}
       transition={pressSpring}
     >
@@ -279,6 +306,8 @@ export function FxButton({
           children
         )}
       </Button>
+      <span className="fx-liquid-layer fx-liquid-layer--highlight" aria-hidden />
+      <span className="fx-liquid-layer fx-liquid-layer--rim" aria-hidden />
       {showRipple && (
         <span className={`fx-overlay ${variant === "primary" ? "fx-sweep" : ""}`} aria-hidden>
           {elements}

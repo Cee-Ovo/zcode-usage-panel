@@ -104,8 +104,51 @@ body {
   z-index: -1;
   pointer-events: none;
   border-radius: inherit;
-  background: color-mix(in srgb, var(--zup-blue-500) 15%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--zup-blue-500) 8%, transparent);
+  overflow: hidden;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.72), rgb(223 240 255 / 0.36)),
+    color-mix(in srgb, var(--zup-blue-500) 11%, transparent);
+  backdrop-filter: blur(16px) saturate(1.45) brightness(1.04);
+  -webkit-backdrop-filter: blur(16px) saturate(1.45) brightness(1.04);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.9),
+    inset 0 -1px 0 rgb(47 123 246 / 0.09),
+    0 5px 15px -8px rgb(47 123 246 / 0.42),
+    0 0 0 1px rgb(47 123 246 / 0.11);
+}
+
+@supports (backdrop-filter: url("#zup-liquid-refraction")) {
+  .zup-nav-active {
+    backdrop-filter: blur(16px) saturate(1.5) url("#zup-liquid-refraction");
+    -webkit-backdrop-filter: blur(16px) saturate(1.5) url("#zup-liquid-refraction");
+  }
+}
+
+.zup-nav-active::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  background: linear-gradient(110deg, transparent 28%, rgb(255 255 255 / 0.7) 47%, transparent 66%);
+  transform: translateX(-125%) skewX(-12deg);
+  animation: zup-nav-liquid-arrive 560ms var(--zup-ease-out) both;
+}
+
+.zup-nav-liquid-light {
+  position: absolute;
+  width: 46%;
+  height: 140%;
+  top: -42%;
+  left: -5%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(255 255 255 / 0.58), transparent 68%);
+  filter: blur(6px);
+}
+
+@keyframes zup-nav-liquid-arrive {
+  0% { transform: translateX(-125%) skewX(-12deg); opacity: 0; }
+  35% { opacity: 0.9; }
+  100% { transform: translateX(130%) skewX(-12deg); opacity: 0; }
 }
 
 .zup-nav-content {
@@ -115,6 +158,30 @@ body {
 
 :root[data-theme="dark"] .zup-nav-item.active {
   color: #9cc3ff;
+}
+
+:root[data-theme="dark"] .zup-nav-active {
+  background:
+    linear-gradient(145deg, rgb(105 159 226 / 0.19), rgb(28 54 89 / 0.28)),
+    rgb(42 91 154 / 0.16);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.14),
+    inset 0 -1px 0 rgb(0 0 0 / 0.22),
+    0 7px 18px -10px rgb(0 0 0 / 0.72),
+    0 0 0 1px rgb(126 183 255 / 0.13);
+}
+
+@media (prefers-reduced-transparency: reduce), (forced-colors: active) {
+  .zup-nav-active {
+    background: color-mix(in srgb, var(--zup-blue-500) 18%, Canvas);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .zup-nav-active::after,
+  .zup-nav-liquid-light {
+    display: none;
+  }
 }
 
 .zup-nav .footnote {
@@ -1038,7 +1105,7 @@ body {
   pointer-events: none;
 }
 
-.fx-sweep:hover::after {
+.fx-press:hover .fx-sweep::after {
   transition: transform 560ms var(--zup-ease-out);
   transform: translateX(130%);
 }
@@ -1170,6 +1237,25 @@ body {
   padding: 13px 16px;
 }
 
+.codex-range-control {
+  display: flex;
+  margin-top: 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.codex-range-control::-webkit-scrollbar {
+  display: none;
+}
+
+.codex-range-control .liquid-segments {
+  flex: none;
+}
+
+.codex-range-content {
+  min-height: 116px;
+}
+
 :root[data-theme="dark"] .codex-panel {
   background: linear-gradient(160deg, rgb(23 38 60 / 0.6), rgb(18 30 48 / 0.5));
   border-color: rgb(53 197 232 / 0.22);
@@ -1180,7 +1266,7 @@ body {
   align-items: baseline;
   gap: 10px;
   flex-wrap: wrap;
-  margin-top: 2px;
+  margin-top: 10px;
 }
 
 .codex-headline .big {

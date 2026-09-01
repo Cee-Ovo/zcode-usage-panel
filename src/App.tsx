@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { GlassSystemProvider, Switch } from "open-glass-ui";
+import { GlassSystemProvider, OrganicFilterDefinition, Switch } from "open-glass-ui";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion/react";
 import { api, onEvent } from "./lib/ipc";
 import { pageVariants, popSpring, softSpring } from "./lib/motion";
@@ -53,6 +53,18 @@ export function App() {
       return () => mq.removeEventListener("change", fn);
     }
   }, [theme]);
+
+  // Pause the ambient material while the webview is hidden. The liquid
+  // background is CSS-only, but there is no reason to keep compositing it
+  // when the desktop window is not visible.
+  useEffect(() => {
+    const syncAmbientState = () => {
+      document.documentElement.toggleAttribute("data-ambient-paused", document.hidden);
+    };
+    syncAmbientState();
+    document.addEventListener("visibilitychange", syncAmbientState);
+    return () => document.removeEventListener("visibilitychange", syncAmbientState);
+  }, []);
 
   // ---- bootstrap + data pump -------------------------------------------------
   const rangeRef = useRef(rangeKey);
@@ -200,7 +212,9 @@ export function App() {
               layoutId="zup-nav-active"
               className="zup-nav-active"
               transition={softSpring}
-            />
+            >
+              <span className="zup-nav-liquid-light" />
+            </motion.span>
           )}
           {/* icon pops once when its item becomes the active page */}
           <motion.span
@@ -222,8 +236,27 @@ export function App() {
 
   return (
     <MotionConfig reducedMotion="user">
-      <GlassSystemProvider theme={{ appearance: resolvedTheme }}>
+      <GlassSystemProvider
+        renderer="auto"
+        quality="auto"
+        motion="system"
+        theme={{ appearance: resolvedTheme }}
+      >
+        <OrganicFilterDefinition
+          id="zup-liquid-refraction"
+          frequency={0.012}
+          turbulence={0.58}
+          scale={9}
+          seed={4}
+          animate={false}
+        />
         <div className="zup-shell zup-frame">
+          <div className="liquid-ambient" aria-hidden>
+            <span className="liquid-ambient__orb liquid-ambient__orb--blue" />
+            <span className="liquid-ambient__orb liquid-ambient__orb--cyan" />
+            <span className="liquid-ambient__orb liquid-ambient__orb--violet" />
+            <span className="liquid-ambient__grain" />
+          </div>
           <WindowFrame />
           <TitleBar title="ZCode Usage Panel" onRefresh={refreshAll} />
           <div className="zup-body">

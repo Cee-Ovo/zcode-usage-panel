@@ -24,7 +24,13 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::{LocalUsage, ModelUsageRow, ProviderSnapshot, ProviderStatus, QuotaWindow, TokenBreakdown};
+use super::{
+    LocalUsage, LocalUsageRange, ModelUsageRow, ProviderSnapshot, ProviderStatus, QuotaWindow,
+    TokenBreakdown,
+};
+
+const CODEX_CACHE_SCHEMA_VERSION: u32 = 2;
+const RANGE_KEYS: [&str; 6] = ["today", "60m", "24h", "7d", "30d", "all"];
 
 // ---------------------------------------------------------------------------
 // Wire types (subset of Codex's rollout schema)
@@ -79,11 +85,29 @@ struct SessionUsage {
     last_ts_ms: i64,
     /// Number of token_count events (= model responses) in this session.
     responses: u64,
+    /// Latest cumulative counters, used as the baseline for incremental
+    /// parsing. This is deliberately distinct from `all_time`: counters may
+    /// reset within one rollout file.
     totals: TotalTokenUsage,
-    /// Day-keyed (local days since epoch) usage deltas, derived by diffing
-    /// successive cumulative totals — accurate across midnight.
+    /// Exact accumulated deltas for this file, including counter resets.
     #[serde(default)]
-    daily: HashMap<i64, TotalTokenUsage>,
+    all_time: TotalTokenUsage,
+    /// Exact accumulated deltas by the model active at each token event.
+    #[serde(default)]
+    model_totals: HashMap<String, TotalTokenUsage>,
+    #[serde(default)]
+    model_requests: HashMap<String, u64>,
+    /// Timestamped deltas retained for rolling range aggregation. Entries
+    /// older than 30 days are pruned after each poll.
+    #[serde(default)]
+    recent: Vec<UsageEvent>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct UsageEvent {
+    ts_ms: i64,
+    model: String,
+    delta: TotalTokenUsage,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -99,11 +123,22 @@ struct FileEntry {
 /// limits seen. Saved atomically; corrupt files fall back to empty.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct CodexCache {
+    #[serde(default)]
+    schema_version: u32,
     files: HashMap<String, FileEntry>,
     #[serde(default)]
     last_rate_limits: Option<(i64, RateLimits)>,
     #[serde(default)]
     saved_at_ms: i64,
+}
+
+impl CodexCache {
+    fn fresh() -> Self {
+        Self {
+            schema_version: CODEX_CACHE_SCHEMA_VERSION,
+            ..Default::default()
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -114,23 +149,49 @@ pub struct CodexProvider {
     home: PathBuf,
     cache: CodexCache,
     cache_path: Option<PathBuf>,
+    cache_needs_persist: bool,
 }
 
 impl CodexProvider {
     pub fn new(cache_path: Option<PathBuf>) -> Self {
-        let cache = cache_path
+        let (cache, cache_needs_persist) = cache_path
             .as_ref()
             .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default();
-        Self { home: default_home(), cache, cache_path }
+            .and_then(|t| {
+                let parsed = serde_json::from_str::<CodexCache>(&t).ok()?;
+                if parsed.schema_version == CODEX_CACHE_SCHEMA_VERSION {
+                    Some((parsed, false))
+                } else {
+                    Some((CodexCache::fresh(), true))
+                }
+            })
+            .unwrap_or_else(|| (CodexCache::fresh(), false));
+        Self {
+            home: default_home(),
+            cache,
+            cache_path,
+            cache_needs_persist,
+        }
     }
 
     /// Point at a (possibly different) CODEX_HOME; a changed root resets the
     /// parse cache since watermarks belong to specific files.
     pub fn with_home(&mut self, home: PathBuf) -> &mut Self {
         if self.home != home {
-            self.cache = CodexCache::default();
+            // A cache loaded from disk can legitimately be paired with an
+            // explicitly configured home after construction. Keep it when
+            // its file keys belong to that home; otherwise switching roots
+            // must discard watermarks and parse state.
+            let belongs_to_home = !self.cache.files.is_empty()
+                && self
+                    .cache
+                    .files
+                    .keys()
+                    .all(|key| Path::new(key).starts_with(&home));
+            if !belongs_to_home {
+                self.cache = CodexCache::fresh();
+                self.cache_needs_persist = true;
+            }
         }
         self.home = home;
         self
@@ -174,11 +235,14 @@ impl CodexProvider {
         collect_jsonl(&self.home.join("sessions"), &mut files);
         files.sort();
 
-        let live: std::collections::HashSet<String> =
-            files.iter().map(|f| f.to_string_lossy().into_owned()).collect();
+        let live: std::collections::HashSet<String> = files
+            .iter()
+            .map(|f| f.to_string_lossy().into_owned())
+            .collect();
+        let file_count_before = self.cache.files.len();
         self.cache.files.retain(|k, _| live.contains(k));
 
-        let mut changed = false;
+        let mut changed = self.cache_needs_persist || file_count_before != self.cache.files.len();
         let mut best_rl = self.cache.last_rate_limits.take();
         for path in &files {
             let key = path.to_string_lossy().into_owned();
@@ -189,12 +253,14 @@ impl CodexProvider {
                     self.cache
                         .files
                         .remove(&path.to_string_lossy().into_owned());
-                    snap.notes.push(format!("跳过无法读取的 session 文件:{why}"));
+                    snap.notes
+                        .push(format!("跳过无法读取的 session 文件:{why}"));
                 }
             }
         }
         self.cache.last_rate_limits = best_rl;
         self.cache.saved_at_ms = now_ms;
+        changed |= prune_recent(&mut self.cache.files, now_ms);
 
         snap.local_usage = Some(aggregate_local(&self.cache.files, now_ms));
 
@@ -213,8 +279,9 @@ impl CodexProvider {
             if let Some(credits) = &rl.credits {
                 if let Some(true) = credits.get("has_credits").and_then(|v| v.as_bool()) {
                     if let Some(balance) = credits.get("balance").and_then(|v| v.as_str()) {
-                        snap.notes
-                            .push(format!("Credits 余额:{balance}(API 抵扣额度,与套餐额度独立)"));
+                        snap.notes.push(format!(
+                            "Credits 余额:{balance}(API 抵扣额度,与套餐额度独立)"
+                        ));
                     }
                 }
             }
@@ -233,6 +300,7 @@ impl CodexProvider {
 
         if changed {
             self.persist_cache();
+            self.cache_needs_persist = false;
         }
         snap
     }
@@ -284,13 +352,16 @@ fn advance_file(
         entry.complete = true;
         return Ok(false);
     }
-    f.seek(SeekFrom::Start(entry.offset)).map_err(|e| e.to_string())?;
+    f.seek(SeekFrom::Start(entry.offset))
+        .map_err(|e| e.to_string())?;
     let mut reader = BufReader::new(f);
     let mut grew = false;
     let mut offset = entry.offset;
     loop {
         let mut line = String::new();
-        let Ok(n) = reader.read_line(&mut line) else { break };
+        let Ok(n) = reader.read_line(&mut line) else {
+            break;
+        };
         if n == 0 {
             break;
         }
@@ -345,20 +416,22 @@ fn apply_line(line: &str, session: &mut SessionUsage, best_rl: &mut Option<(i64,
             if p.get("type").and_then(|t| t.as_str()) == Some("token_count") {
                 if let Some(t) = p.get("info").and_then(|i| i.get("total_token_usage")) {
                     if let Ok(parsed) = serde_json::from_value::<TotalTokenUsage>(t.clone()) {
-                        // Cumulative counter: attribute the delta since the
-                        // previous event to the event's local day. Counters
-                        // can reset (new reasoning session) — clamp at 0.
-                        let day = local_day_key(ts_ms);
-                        let entry = session.daily.entry(day).or_default();
-                        entry.input_tokens += parsed.input_tokens.saturating_sub(session.totals.input_tokens);
-                        entry.cached_input_tokens +=
-                            parsed.cached_input_tokens.saturating_sub(session.totals.cached_input_tokens);
-                        entry.cache_write_input_tokens +=
-                            parsed.cache_write_input_tokens.saturating_sub(session.totals.cache_write_input_tokens);
-                        entry.output_tokens += parsed.output_tokens.saturating_sub(session.totals.output_tokens);
-                        entry.reasoning_output_tokens +=
-                            parsed.reasoning_output_tokens.saturating_sub(session.totals.reasoning_output_tokens);
-                        entry.total_tokens += parsed.total_tokens.saturating_sub(session.totals.total_tokens);
+                        // Cumulative counters are normally monotonic, but a
+                        // new reasoning session can reset them. A decrease
+                        // therefore means the post-reset value, not zero.
+                        let delta = counter_delta(&parsed, &session.totals);
+                        add_total(&mut session.all_time, &delta);
+                        let model = event_model(&session.model, p);
+                        add_total(
+                            session.model_totals.entry(model.clone()).or_default(),
+                            &delta,
+                        );
+                        *session.model_requests.entry(model.clone()).or_default() += 1;
+                        session.recent.push(UsageEvent {
+                            ts_ms,
+                            model,
+                            delta,
+                        });
                         session.totals = parsed; // cumulative — last wins
                         session.responses += 1;
                         if ts_ms > session.last_ts_ms {
@@ -380,7 +453,9 @@ fn apply_line(line: &str, session: &mut SessionUsage, best_rl: &mut Option<(i64,
 }
 
 fn collect_jsonl(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in rd.flatten() {
         let p = e.path();
         if p.is_dir() {
@@ -391,55 +466,179 @@ fn collect_jsonl(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn aggregate_local(files: &HashMap<String, FileEntry>, now_ms: i64) -> LocalUsage {
-    let mut usage = LocalUsage::default();
-    let mut by_model: HashMap<String, TokenBreakdown> = HashMap::new();
-    let today_key = local_day_key(now_ms);
-    let seven_days_ago_key = local_day_key(now_ms.saturating_sub(7 * 24 * 3600_000));
-    for entry in files.values() {
-        let s = &entry.session;
-        if s.session_id.is_empty() && s.totals.total_tokens == 0 {
-            continue;
-        }
-        usage.sessions += 1;
-        for (day, delta) in &s.daily {
-            let mut add = |target: &mut TokenBreakdown| {
-                target.input_tokens += delta.input_tokens;
-                target.cached_input_tokens += delta.cached_input_tokens;
-                target.cache_write_tokens += delta.cache_write_input_tokens;
-                target.output_tokens += delta.output_tokens;
-                target.reasoning_tokens += delta.reasoning_output_tokens;
-                target.total_tokens += delta.total_tokens;
-            };
-            if *day == today_key {
-                add(&mut usage.today);
-            }
-            if *day >= seven_days_ago_key {
-                add(&mut usage.last_7d);
-            }
-            let key = if s.model.is_empty() { "unknown".to_string() } else { s.model.clone() };
-            add(by_model.entry(key).or_default());
-        }
-        // all-time from the cumulative counters (exact)
-        usage.all_time.requests += s.responses;
-        usage.all_time.input_tokens += s.totals.input_tokens;
-        usage.all_time.cached_input_tokens += s.totals.cached_input_tokens;
-        usage.all_time.cache_write_tokens += s.totals.cache_write_input_tokens;
-        usage.all_time.output_tokens += s.totals.output_tokens;
-        usage.all_time.reasoning_tokens += s.totals.reasoning_output_tokens;
-        usage.all_time.total_tokens += s.totals.total_tokens;
+fn add_total(target: &mut TotalTokenUsage, delta: &TotalTokenUsage) {
+    target.input_tokens += delta.input_tokens;
+    target.cached_input_tokens += delta.cached_input_tokens;
+    target.cache_write_input_tokens += delta.cache_write_input_tokens;
+    target.output_tokens += delta.output_tokens;
+    target.reasoning_output_tokens += delta.reasoning_output_tokens;
+    target.total_tokens += delta.total_tokens;
+}
+
+fn counter_delta(current: &TotalTokenUsage, previous: &TotalTokenUsage) -> TotalTokenUsage {
+    fn one(current: u64, previous: u64) -> u64 {
+        current.checked_sub(previous).unwrap_or(current)
     }
-    usage.models = by_model
+    TotalTokenUsage {
+        input_tokens: one(current.input_tokens, previous.input_tokens),
+        cached_input_tokens: one(current.cached_input_tokens, previous.cached_input_tokens),
+        cache_write_input_tokens: one(
+            current.cache_write_input_tokens,
+            previous.cache_write_input_tokens,
+        ),
+        output_tokens: one(current.output_tokens, previous.output_tokens),
+        reasoning_output_tokens: one(
+            current.reasoning_output_tokens,
+            previous.reasoning_output_tokens,
+        ),
+        total_tokens: one(current.total_tokens, previous.total_tokens),
+    }
+}
+
+fn event_model(current: &str, payload: &serde_json::Value) -> String {
+    payload
+        .get("model")
+        .or_else(|| payload.get("info").and_then(|i| i.get("model")))
+        .and_then(|m| m.as_str())
+        .filter(|m| !m.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            if current.is_empty() {
+                "unknown".into()
+            } else {
+                current.into()
+            }
+        })
+}
+
+fn to_breakdown(total: &TotalTokenUsage, requests: u64) -> TokenBreakdown {
+    TokenBreakdown {
+        requests,
+        input_tokens: total.input_tokens,
+        cached_input_tokens: total.cached_input_tokens,
+        cache_write_tokens: total.cache_write_input_tokens,
+        output_tokens: total.output_tokens,
+        reasoning_tokens: total.reasoning_output_tokens,
+        // This is the raw Codex total_tokens field. Never derive it by
+        // adding cached/input/output fields.
+        total_tokens: total.total_tokens,
+    }
+}
+
+fn in_range(ts_ms: i64, key: &str, now_ms: i64) -> bool {
+    match key {
+        "today" => ts_ms >= crate::zcode::aggregate::local_day_start_ms(now_ms) && ts_ms <= now_ms,
+        "60m" => ts_ms >= now_ms.saturating_sub(60 * 60_000) && ts_ms <= now_ms,
+        "24h" => ts_ms >= now_ms.saturating_sub(24 * 60 * 60_000) && ts_ms <= now_ms,
+        "7d" => ts_ms >= now_ms.saturating_sub(7 * 24 * 60 * 60_000) && ts_ms <= now_ms,
+        "30d" => ts_ms >= now_ms.saturating_sub(30 * 24 * 60 * 60_000) && ts_ms <= now_ms,
+        "all" => true,
+        _ => false,
+    }
+}
+
+fn model_rows(models: HashMap<String, TokenBreakdown>) -> Vec<ModelUsageRow> {
+    let mut rows: Vec<_> = models
         .into_iter()
         .map(|(model, breakdown)| ModelUsageRow { model, breakdown })
         .collect();
-    usage.models.sort_by(|a, b| b.breakdown.total_tokens.cmp(&a.breakdown.total_tokens));
+    rows.sort_by(|a, b| {
+        b.breakdown
+            .total_tokens
+            .cmp(&a.breakdown.total_tokens)
+            .then_with(|| a.model.cmp(&b.model))
+    });
+    rows
+}
+
+fn prune_recent(files: &mut HashMap<String, FileEntry>, now_ms: i64) -> bool {
+    let cutoff = now_ms.saturating_sub(30 * 24 * 60 * 60_000);
+    let mut changed = false;
+    for entry in files.values_mut() {
+        let before = entry.session.recent.len();
+        entry.session.recent.retain(|event| event.ts_ms >= cutoff);
+        changed |= before != entry.session.recent.len();
+    }
+    changed
+}
+
+fn aggregate_local(files: &HashMap<String, FileEntry>, now_ms: i64) -> LocalUsage {
+    let mut usage = LocalUsage::default();
+    for key in RANGE_KEYS {
+        let mut breakdown = TokenBreakdown::default();
+        let mut models: HashMap<String, TokenBreakdown> = HashMap::new();
+        let mut sessions = 0;
+        for entry in files.values() {
+            let s = &entry.session;
+            if s.session_id.is_empty() && s.responses == 0 {
+                continue;
+            }
+            if key == "all" {
+                sessions += 1;
+                breakdown.requests += s.responses;
+                let all = to_breakdown(&s.all_time, 0);
+                breakdown.input_tokens += all.input_tokens;
+                breakdown.cached_input_tokens += all.cached_input_tokens;
+                breakdown.cache_write_tokens += all.cache_write_tokens;
+                breakdown.output_tokens += all.output_tokens;
+                breakdown.reasoning_tokens += all.reasoning_tokens;
+                breakdown.total_tokens += all.total_tokens;
+                for (model, total) in &s.model_totals {
+                    let row = models.entry(model.clone()).or_default();
+                    *row = add_breakdown(
+                        row,
+                        &to_breakdown(total, s.model_requests.get(model).copied().unwrap_or(0)),
+                    );
+                }
+                continue;
+            }
+            let mut in_session = false;
+            for event in &s.recent {
+                if !in_range(event.ts_ms, key, now_ms) {
+                    continue;
+                }
+                in_session = true;
+                breakdown.requests += 1;
+                let delta = to_breakdown(&event.delta, 1);
+                breakdown.input_tokens += delta.input_tokens;
+                breakdown.cached_input_tokens += delta.cached_input_tokens;
+                breakdown.cache_write_tokens += delta.cache_write_tokens;
+                breakdown.output_tokens += delta.output_tokens;
+                breakdown.reasoning_tokens += delta.reasoning_tokens;
+                breakdown.total_tokens += delta.total_tokens;
+                let row = models.entry(event.model.clone()).or_default();
+                *row = add_breakdown(row, &delta);
+            }
+            if in_session {
+                sessions += 1;
+            }
+        }
+        let range = LocalUsageRange {
+            key: key.into(),
+            breakdown,
+            sessions,
+            models: model_rows(models),
+        };
+        usage.ranges.push(range);
+    }
+    usage.today = usage.ranges[0].breakdown.clone();
+    usage.last_7d = usage.ranges[3].breakdown.clone();
+    usage.all_time = usage.ranges[5].breakdown.clone();
+    usage.sessions = usage.ranges[5].sessions;
+    usage.models = usage.ranges[5].models.clone();
     usage
 }
 
-/// Local day index (days since local-midnight epoch) for bucketing.
-fn local_day_key(ts_ms: i64) -> i64 {
-    crate::zcode::aggregate::local_day_start_ms(ts_ms) / 86_400_000
+fn add_breakdown(target: &TokenBreakdown, delta: &TokenBreakdown) -> TokenBreakdown {
+    TokenBreakdown {
+        requests: target.requests + delta.requests,
+        input_tokens: target.input_tokens + delta.input_tokens,
+        cached_input_tokens: target.cached_input_tokens + delta.cached_input_tokens,
+        cache_write_tokens: target.cache_write_tokens + delta.cache_write_tokens,
+        output_tokens: target.output_tokens + delta.output_tokens,
+        reasoning_tokens: target.reasoning_tokens + delta.reasoning_tokens,
+        total_tokens: target.total_tokens + delta.total_tokens,
+    }
 }
 
 /// Decode ONLY the id_token claims segment (never the signature, never the
@@ -451,10 +650,7 @@ fn read_account_claims(auth_path: &Path) -> (Option<String>, Option<String>) {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
         return (None, None);
     };
-    let Some(id_token) = v
-        .pointer("/tokens/id_token")
-        .and_then(|t| t.as_str())
-    else {
+    let Some(id_token) = v.pointer("/tokens/id_token").and_then(|t| t.as_str()) else {
         return (None, None);
     };
     let claims = decode_jwt_claims(id_token);
@@ -516,6 +712,35 @@ mod tests {
         )
     }
 
+    fn token_event_line(timestamp: &str, input: u64, total: u64) -> String {
+        serde_json::json!({
+            "timestamp": timestamp,
+            "type": "event_msg",
+            "payload": {
+                "type": "token_count",
+                "info": {
+                    "total_token_usage": {
+                        "input_tokens": input,
+                        "cached_input_tokens": 0,
+                        "cache_write_input_tokens": 0,
+                        "output_tokens": 0,
+                        "reasoning_output_tokens": 0,
+                        "total_tokens": total
+                    }
+                }
+            }
+        })
+        .to_string()
+    }
+
+    fn total(value: u64) -> TotalTokenUsage {
+        TotalTokenUsage {
+            input_tokens: value,
+            total_tokens: value,
+            ..Default::default()
+        }
+    }
+
     fn rate_line(primary_pct: f64, resets: i64, plan: &str) -> String {
         format!(
             r#"{{"timestamp":"2026-08-29T13:44:00.000Z","ordinal":4,"type":"event_msg","payload":{{"type":"token_count","info":{{}},"rate_limits":{{"limit_id":"codex","primary":{{"used_percent":{primary_pct},"window_minutes":300,"resets_at":{resets}}},"secondary":{{"used_percent":50.0,"window_minutes":10080,"resets_at":1790000000}},"credits":{{"has_credits":true,"unlimited":false,"balance":"1000"}},"plan_type":"{plan}"}}}}}}"#
@@ -528,7 +753,12 @@ mod tests {
         write_rollout(
             &home,
             "rollout-a.jsonl",
-            &[meta_line(), turn_line(), token_line(1000, 1114), rate_line(8.0, 1788025458, "plus")],
+            &[
+                meta_line(),
+                turn_line(),
+                token_line(1000, 1114),
+                rate_line(8.0, 1788025458, "plus"),
+            ],
         );
         let mut p = CodexProvider::new(None);
         p.with_home(home.clone());
@@ -550,7 +780,11 @@ mod tests {
     #[test]
     fn incremental_append_and_half_line() {
         let (_dir, home) = tmp_home();
-        let p = write_rollout(&home, "rollout-b.jsonl", &[meta_line(), turn_line(), token_line(100, 214)]);
+        let p = write_rollout(
+            &home,
+            "rollout-b.jsonl",
+            &[meta_line(), turn_line(), token_line(100, 214)],
+        );
         let mut entry = FileEntry::default();
         let mut rl = None;
         assert!(advance_file(&p, &mut entry, &mut rl).unwrap());
@@ -565,7 +799,10 @@ mod tests {
         assert!(advance_file(&p, &mut entry, &mut rl).unwrap());
         assert!(entry.offset > before);
         assert!(!entry.complete, "half line must hold back the watermark");
-        assert_eq!(entry.session.totals.total_tokens, 314, "cumulative last-wins");
+        assert_eq!(
+            entry.session.totals.total_tokens, 314,
+            "cumulative last-wins"
+        );
         assert_eq!(entry.session.responses, 2);
 
         let mut text = std::fs::read_to_string(&p).unwrap();
@@ -581,7 +818,11 @@ mod tests {
     #[test]
     fn truncation_rereads_from_start() {
         let (_dir, home) = tmp_home();
-        let p = write_rollout(&home, "rollout-c.jsonl", &[meta_line(), token_line(50, 164)]);
+        let p = write_rollout(
+            &home,
+            "rollout-c.jsonl",
+            &[meta_line(), token_line(50, 164)],
+        );
         let mut entry = FileEntry::default();
         let mut rl = None;
         advance_file(&p, &mut entry, &mut rl).unwrap();
@@ -589,6 +830,8 @@ mod tests {
         std::fs::write(&p, meta_line() + "\n").unwrap();
         assert!(advance_file(&p, &mut entry, &mut rl).unwrap());
         assert_eq!(entry.session.totals.total_tokens, 0);
+        assert_eq!(entry.session.all_time.total_tokens, 0);
+        assert!(entry.session.recent.is_empty());
         assert_eq!(entry.session.session_id, "s1");
     }
 
@@ -604,7 +847,11 @@ mod tests {
     #[test]
     fn stale_rate_limits_flag() {
         let (_dir, home) = tmp_home();
-        write_rollout(&home, "rollout-d.jsonl", &[meta_line(), rate_line(5.0, 1788025458, "plus")]);
+        write_rollout(
+            &home,
+            "rollout-d.jsonl",
+            &[meta_line(), rate_line(5.0, 1788025458, "plus")],
+        );
         let mut p = CodexProvider::new(None);
         p.with_home(home.clone());
         // 10 h after the rate_limits timestamp → stale
@@ -621,7 +868,12 @@ mod tests {
         write_rollout(
             &home,
             "rollout-e.jsonl",
-            &[meta_line(), turn_line(), token_line(10, 124), rate_line(1.0, 1788025458, "plus")],
+            &[
+                meta_line(),
+                turn_line(),
+                token_line(10, 124),
+                rate_line(1.0, 1788025458, "plus"),
+            ],
         );
         let mut p = CodexProvider::new(Some(cache_path.clone()));
         p.with_home(home.clone());
@@ -644,16 +896,28 @@ mod tests {
         // every timezone): day1 +100, day2 cumulative → +80 delta.
         let late_night = r#"{"timestamp":"2026-08-29T12:00:00.000Z","ordinal":3,"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0,"reasoning_output_tokens":0,"total_tokens":100}}}}"#;
         let after_midnight = r#"{"timestamp":"2026-08-30T12:00:00.000Z","ordinal":4,"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":150,"cached_input_tokens":20,"cache_write_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0,"total_tokens":180}}}}"#;
-        write_rollout(&home, "rollout-mid.jsonl", &[meta_line(), turn_line(), late_night.into(), after_midnight.into()]);
+        write_rollout(
+            &home,
+            "rollout-mid.jsonl",
+            &[
+                meta_line(),
+                turn_line(),
+                late_night.into(),
+                after_midnight.into(),
+            ],
+        );
         let mut p = CodexProvider::new(None);
         p.with_home(home);
-        // "now" = 2026-08-30 08:00 local-ish; choose an epoch clearly on day 2.
-        let now = 1_788_086_400_000i64;
+        // "now" = 2026-08-30 14:00 UTC; choose an epoch after day 2's event.
+        let now = 1_788_098_400_000i64;
         let snap = p.poll(now);
         let lu = snap.local_usage.unwrap();
         assert_eq!(lu.all_time.total_tokens, 180, "cumulative last-wins");
         // today (day 2) got exactly the second delta: 180-100=80
-        assert_eq!(lu.today.total_tokens, 80, "today bucket = post-midnight delta only");
+        assert_eq!(
+            lu.today.total_tokens, 80,
+            "today bucket = post-midnight delta only"
+        );
         // models aggregate from daily deltas → 180 total
         assert_eq!(lu.models[0].breakdown.total_tokens, 180);
     }
@@ -664,7 +928,12 @@ mod tests {
         write_rollout(
             &home,
             "rollout-f.jsonl",
-            &["not json".into(), String::new(), meta_line(), token_line(7, 121)],
+            &[
+                "not json".into(),
+                String::new(),
+                meta_line(),
+                token_line(7, 121),
+            ],
         );
         let mut p = CodexProvider::new(None);
         p.with_home(home);
@@ -673,10 +942,180 @@ mod tests {
     }
 
     #[test]
+    fn six_ranges_use_rolling_boundaries_and_keep_all_time_exact() {
+        let now = 1_800_000_000_000i64;
+        let events = [
+            (now - 30 * 60_000, "sol", 10),
+            (now - 2 * 60 * 60_000, "luna", 20),
+            (now - 2 * 24 * 60 * 60_000, "sol", 30),
+            (now - 10 * 24 * 60 * 60_000, "sol", 40),
+            (now - 31 * 24 * 60 * 60_000, "sol", 50),
+        ];
+        let recent = events
+            .iter()
+            .map(|(ts_ms, model, value)| UsageEvent {
+                ts_ms: *ts_ms,
+                model: (*model).into(),
+                delta: total(*value),
+            })
+            .collect();
+        let session = SessionUsage {
+            session_id: "s1".into(),
+            responses: 5,
+            all_time: total(150),
+            model_totals: HashMap::from([("sol".into(), total(130)), ("luna".into(), total(20))]),
+            model_requests: HashMap::from([("sol".into(), 4), ("luna".into(), 1)]),
+            recent,
+            ..Default::default()
+        };
+        let files = HashMap::from([(
+            "rollout.jsonl".into(),
+            FileEntry {
+                session,
+                ..Default::default()
+            },
+        )]);
+
+        let usage = aggregate_local(&files, now);
+        assert_eq!(
+            usage
+                .ranges
+                .iter()
+                .map(|r| r.key.as_str())
+                .collect::<Vec<_>>(),
+            RANGE_KEYS
+        );
+        let value = |key: &str| {
+            usage
+                .ranges
+                .iter()
+                .find(|range| range.key == key)
+                .unwrap()
+                .breakdown
+                .total_tokens
+        };
+        assert_eq!(value("60m"), 10);
+        assert_eq!(value("24h"), 30);
+        assert_eq!(value("7d"), 60);
+        assert_eq!(value("30d"), 100);
+        assert_eq!(value("all"), 150);
+        assert_eq!(usage.all_time.requests, 5);
+        assert_eq!(usage.ranges[1].sessions, 1);
+        assert_eq!(usage.ranges[1].models[0].model, "sol");
+        assert_eq!(
+            usage.ranges[5]
+                .models
+                .iter()
+                .map(|m| m.breakdown.requests)
+                .sum::<u64>(),
+            5
+        );
+    }
+
+    #[test]
+    fn cumulative_counter_reset_counts_the_new_value_as_delta() {
+        let mut session = SessionUsage {
+            model: "gpt-5.6-sol".into(),
+            ..Default::default()
+        };
+        let mut rate_limits = None;
+        apply_line(
+            &token_event_line("2026-08-29T13:43:45Z", 100, 100),
+            &mut session,
+            &mut rate_limits,
+        );
+        apply_line(
+            &token_event_line("2026-08-29T13:44:45Z", 40, 40),
+            &mut session,
+            &mut rate_limits,
+        );
+
+        assert_eq!(session.responses, 2);
+        assert_eq!(session.all_time.total_tokens, 140);
+        assert_eq!(session.recent[1].delta.total_tokens, 40);
+        assert_eq!(session.model_requests["gpt-5.6-sol"], 2);
+    }
+
+    #[test]
+    fn token_events_are_attributed_to_the_model_active_at_that_event() {
+        let mut session = SessionUsage {
+            model: "gpt-5.6-sol".into(),
+            ..Default::default()
+        };
+        let mut rate_limits = None;
+        apply_line(
+            &token_event_line("2026-08-29T13:43:45Z", 100, 100),
+            &mut session,
+            &mut rate_limits,
+        );
+        session.model = "gpt-5.6-luna".into();
+        apply_line(
+            &token_event_line("2026-08-29T13:44:45Z", 150, 150),
+            &mut session,
+            &mut rate_limits,
+        );
+
+        assert_eq!(session.model_totals["gpt-5.6-sol"].total_tokens, 100);
+        assert_eq!(session.model_totals["gpt-5.6-luna"].total_tokens, 50);
+        assert_eq!(session.model_requests["gpt-5.6-sol"], 1);
+        assert_eq!(session.model_requests["gpt-5.6-luna"], 1);
+    }
+
+    #[test]
+    fn old_cache_schema_is_rebuilt_and_persisted_as_v2() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_path = dir.path().join("codex-cache.json");
+        std::fs::write(&cache_path, r#"{"schema_version":1,"files":{}}"#).unwrap();
+        let (_home_dir, home) = tmp_home();
+
+        let mut provider = CodexProvider::new(Some(cache_path.clone()));
+        assert_eq!(provider.cache.schema_version, CODEX_CACHE_SCHEMA_VERSION);
+        assert!(provider.cache_needs_persist);
+        provider.with_home(home).poll(1_800_000_000_000);
+
+        let persisted: CodexCache =
+            serde_json::from_str(&std::fs::read_to_string(cache_path).unwrap()).unwrap();
+        assert_eq!(persisted.schema_version, CODEX_CACHE_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn recent_events_are_pruned_without_changing_all_time_totals() {
+        let now = 1_800_000_000_000i64;
+        let session = SessionUsage {
+            all_time: total(60),
+            recent: vec![
+                UsageEvent {
+                    ts_ms: now - 31 * 24 * 60 * 60_000,
+                    model: "sol".into(),
+                    delta: total(20),
+                },
+                UsageEvent {
+                    ts_ms: now - 2 * 24 * 60 * 60_000,
+                    model: "sol".into(),
+                    delta: total(40),
+                },
+            ],
+            ..Default::default()
+        };
+        let mut files = HashMap::from([(
+            "rollout.jsonl".into(),
+            FileEntry {
+                session,
+                ..Default::default()
+            },
+        )]);
+
+        assert!(prune_recent(&mut files, now));
+        assert_eq!(files["rollout.jsonl"].session.recent.len(), 1);
+        assert_eq!(files["rollout.jsonl"].session.all_time.total_tokens, 60);
+    }
+
+    #[test]
     fn jwt_claims_decode() {
         use base64::Engine;
         let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
-        let claims = br#"{"email":"a@b.c","https://api.openai.com/auth":{"chatgpt_plan_type":"pro"}}"#;
+        let claims =
+            br#"{"email":"a@b.c","https://api.openai.com/auth":{"chatgpt_plan_type":"pro"}}"#;
         let token = format!("header.{}.signature", engine.encode(claims));
         let v = decode_jwt_claims(&token);
         assert_eq!(v.get("email").and_then(|e| e.as_str()), Some("a@b.c"));
@@ -693,7 +1132,11 @@ mod tests {
     #[test]
     fn freshest_rate_limits_wins_across_files() {
         let (_dir, home) = tmp_home();
-        write_rollout(&home, "rollout-g1.jsonl", &[meta_line(), rate_line(10.0, 1788025458, "plus")]);
+        write_rollout(
+            &home,
+            "rollout-g1.jsonl",
+            &[meta_line(), rate_line(10.0, 1788025458, "plus")],
+        );
         let newer = rate_line(30.0, 1788025999, "pro").replace("13:44:00", "13:50:00");
         write_rollout(&home, "rollout-g2.jsonl", &[meta_line(), newer]);
         let mut p = CodexProvider::new(None);

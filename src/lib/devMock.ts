@@ -7,6 +7,9 @@ import type {
   TrendDto,
   UsageUpdateEvent,
   CostSummaryDto,
+  LocalUsageRange,
+  ModelUsageRow,
+  TokenBreakdown,
 } from "./types";
 
 /**
@@ -32,6 +35,75 @@ const mkAgg = (scale: number) => ({
 });
 
 const agg = mkAgg(1);
+
+const codexToday: TokenBreakdown = {
+  requests: 96,
+  inputTokens: 2_140_000,
+  cachedInputTokens: 1_460_000,
+  cacheWriteTokens: 88_000,
+  outputTokens: 214_000,
+  reasoningTokens: 41_200,
+  totalTokens: 3_883_200,
+};
+
+const codex7d: TokenBreakdown = {
+  requests: 512,
+  inputTokens: 9_820_000,
+  cachedInputTokens: 6_410_000,
+  cacheWriteTokens: 402_000,
+  outputTokens: 981_000,
+  reasoningTokens: 190_400,
+  totalTokens: 17_603_400,
+};
+
+const codexAll: TokenBreakdown = {
+  requests: 2_240,
+  inputTokens: 41_300_000,
+  cachedInputTokens: 27_800_000,
+  cacheWriteTokens: 1_720_000,
+  outputTokens: 4_120_000,
+  reasoningTokens: 802_000,
+  totalTokens: 75_742_000,
+};
+
+const scaleCodexBreakdown = (value: TokenBreakdown, ratio: number): TokenBreakdown => ({
+  requests: Math.round(value.requests * ratio),
+  inputTokens: Math.round(value.inputTokens * ratio),
+  cachedInputTokens: Math.round(value.cachedInputTokens * ratio),
+  cacheWriteTokens: Math.round(value.cacheWriteTokens * ratio),
+  outputTokens: Math.round(value.outputTokens * ratio),
+  reasoningTokens: Math.round(value.reasoningTokens * ratio),
+  totalTokens: Math.round(value.totalTokens * ratio),
+});
+
+const mockCodexModels = (breakdown: TokenBreakdown): ModelUsageRow[] => [
+  { model: "gpt-5.6-sol", breakdown: scaleCodexBreakdown(breakdown, 0.68) },
+  { model: "gpt-5.6-luna", breakdown: scaleCodexBreakdown(breakdown, 0.32) },
+];
+
+const mockCodexRanges: LocalUsageRange[] = [
+  { key: "today", breakdown: codexToday, sessions: 12, models: mockCodexModels(codexToday) },
+  {
+    key: "60m",
+    breakdown: scaleCodexBreakdown(codexToday, 0.08),
+    sessions: 2,
+    models: mockCodexModels(scaleCodexBreakdown(codexToday, 0.08)),
+  },
+  {
+    key: "24h",
+    breakdown: scaleCodexBreakdown(codexToday, 1.18),
+    sessions: 15,
+    models: mockCodexModels(scaleCodexBreakdown(codexToday, 1.18)),
+  },
+  { key: "7d", breakdown: codex7d, sessions: 46, models: mockCodexModels(codex7d) },
+  {
+    key: "30d",
+    breakdown: scaleCodexBreakdown(codexAll, 0.54),
+    sessions: 91,
+    models: mockCodexModels(scaleCodexBreakdown(codexAll, 0.54)),
+  },
+  { key: "all", breakdown: codexAll, sessions: 132, models: mockCodexModels(codexAll) },
+];
 
 export const mockState: Partial<AppState> = {
   ready: true,
@@ -215,72 +287,12 @@ export const mockState: Partial<AppState> = {
       ],
       packages: [],
       localUsage: {
-        today: {
-          requests: 96,
-          inputTokens: 2_140_000,
-          cachedInputTokens: 1_460_000,
-          cacheWriteTokens: 88_000,
-          outputTokens: 214_000,
-          reasoningTokens: 41_200,
-          totalTokens: 3_883_200,
-        },
-        last7d: {
-          requests: 512,
-          inputTokens: 9_820_000,
-          cachedInputTokens: 6_410_000,
-          cacheWriteTokens: 402_000,
-          outputTokens: 981_000,
-          reasoningTokens: 190_400,
-          totalTokens: 17_603_400,
-        },
-        allTime: {
-          requests: 2_240,
-          inputTokens: 41_300_000,
-          cachedInputTokens: 27_800_000,
-          cacheWriteTokens: 1_720_000,
-          outputTokens: 4_120_000,
-          reasoningTokens: 802_000,
-          totalTokens: 75_742_000,
-        },
+        today: codexToday,
+        last7d: codex7d,
+        allTime: codexAll,
         sessions: 132,
-        models: [
-          {
-            model: "gpt-5.6-sol",
-            breakdown: {
-              requests: 1_420,
-              inputTokens: 28_400_000,
-              cachedInputTokens: 19_200_000,
-              cacheWriteTokens: 1_100_000,
-              outputTokens: 2_800_000,
-              reasoningTokens: 620_000,
-              totalTokens: 52_120_000,
-            },
-          },
-          {
-            model: "gpt-5.6-luna",
-            breakdown: {
-              requests: 820,
-              inputTokens: 12_900_000,
-              cachedInputTokens: 8_600_000,
-              cacheWriteTokens: 620_000,
-              outputTokens: 1_320_000,
-              reasoningTokens: 182_000,
-              totalTokens: 23_622_000,
-            },
-          },
-          {
-            model: "codex-mini-2026",
-            breakdown: {
-              requests: 0,
-              inputTokens: 0,
-              cachedInputTokens: 0,
-              cacheWriteTokens: 0,
-              outputTokens: 0,
-              reasoningTokens: 0,
-              totalTokens: 0,
-            },
-          },
-        ],
+        models: mockCodexModels(codexAll),
+        ranges: mockCodexRanges,
       },
       launcher: null,
       source: "Codex 本地 session 文件(离线)",

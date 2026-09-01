@@ -402,12 +402,20 @@ export interface ModelUsageRow {
   breakdown: TokenBreakdown;
 }
 
+export interface LocalUsageRange {
+  key: "today" | "60m" | "24h" | "7d" | "30d" | "all" | string;
+  breakdown: TokenBreakdown;
+  sessions: number;
+  models: ModelUsageRow[];
+}
+
 export interface LocalUsage {
   today: TokenBreakdown;
   last7d: TokenBreakdown;
   allTime: TokenBreakdown;
   sessions: number;
   models: ModelUsageRow[];
+  ranges: LocalUsageRange[];
 }
 
 export interface LauncherStatus {

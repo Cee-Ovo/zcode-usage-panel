@@ -25,23 +25,23 @@
 
 | 模块 | 说明 |
 |---|---|
-| **仪表盘** | 今天/60分钟/24小时/7天/30天/全部;总 Token、Input、Output、Reasoning、Cache、请求数、Cache Hit Rate、活跃模型 8 项核心指标;Top 3 模型可展开全部 |
+| **仪表盘** | 今天/60分钟/24小时/7天/30天/全部;ZCode 总 Token、API 等价花费、Input、Output、Reasoning、Cache、请求数、Cache Hit Rate、活跃模型 9 项核心指标;Codex 本地 Token 独立分区(今日/7天/累计 + 模型排行,与 ZCode 总 Token、官方套餐额度分开统计);Top 3 模型可展开全部 |
 | **实时趋势** | 字段堆叠图 + 按模型折线,模型可单独显隐;当前 Session 消耗/增速/最近请求/模型切换记录;数字 220ms 补间动画 |
 | **Sessions 页** | 最近 Sessions 列表(项目/模型/起止时间/五类 Token/命中率),点击查看 Session 内趋势 |
 | **模型详情** | 今天/7天/30天/全部、平均每请求 Token、I/O/R 比例、命中率、30 天趋势、Session 分布 Top 10 |
 | **等价花费** | 按官方 API 单价估算 USD/CNY 成本:UI 明确标注"按官方 API 单价估算 · 非实际 Billing"。内置 zai / DeepSeek / Anthropic / OpenAI / xAI / Moonshot / 字节 7 家价格表(编译进二进制),支持模型级用户覆盖、远程价格表拉取与促销价到期自动回落 |
-| **峰谷计费** | DeepSeek 按北京时间(固定 UTC+8)工作日峰谷分时计价(峰段 9–12 / 14–18 时,周末与节假日为谷段);缓存读/写按独立单价计费,与输入/输出分项对齐 |
+| **峰谷计费** | DeepSeek 按北京时间(固定 UTC+8)工作日峰谷分时计价(峰段 9–12 / 14–18 时,周末为谷段;节假日按工作日处理);缓存读/写按独立单价计费,与输入/输出分项对齐 |
 | **汇率换算** | USD→CNY 每日自动刷新(frankfurter.dev),失败时回落内置汇率;所有成本展示同时提供两种币种 |
 | **智能挂起** | 主窗口与 Popup 全部隐藏(托盘/贴边滑出)时自动暂停监控轮询,进入手动刷新模式;任意窗口重新打开瞬间自动刷新一次;标题栏常驻手动刷新按钮 |
 | **异常检测** | 10 分钟激增/单 Session 超阈/命中率骤降/模型连调/数据停滞,本地 Windows 通知,阈值全部可调可关 |
-| **系统托盘** | 关窗最小化到托盘;菜单含显示主面板/今日用量/暂停监控/吸附开关/AOT/开机启动/设置/退出;左键弹 Glass Popup |
+| **系统托盘** | 关窗最小化到托盘;菜单含显示主面板/今日用量/启动 ZCode/显示 ZCode/暂停监控/吸附开关/AOT/开机启动/设置/退出;左键弹 Glass Popup |
 | **边缘吸附** | QQ 式贴边自动隐藏,详见下文 |
 | **导出** | CSV/JSON × 时间范围/模型/Sessions/原始记录,系统保存对话框,导出位置完全由用户决定 |
 | **价格设置页** | 查看/覆盖任意模型单价(峰/谷、缓存、单位),支持一键拉取远程价格表、恢复内置默认;Dashboard 成本汇总与模型成本明细弹窗同源 |
 | **单实例** | 二次启动只唤出已有窗口,不产生第二个监控进程 |
-| **服务额度** | 统一 Provider 框架:Codex(官方 rate_limits:5 小时窗口/周额度/credits,本地离线读取)、Antigravity(官方本地 RPC)、火山引擎 Token 包(费用中心 OpenAPI,多包聚合+到期提醒);失败自动降级,绝不伪造数据 |
+| **服务额度** | 统一 Provider 框架:Codex(官方 rate_limits:5 小时窗口/周额度/credits,本地离线读取)、Antigravity(官方本地 RPC)、火山引擎 Token 包(费用中心 OpenAPI,多包聚合+到期提醒);失败自动降级,绝不伪造数据;Codex/Antigravity 本地 session 日志 Token(今日/7天/累计 + 按模型明细)独立展示,Codex 来源模型名带「（Codex）」标记(仅展示层,不改动原始数据与查询) |
 | **额度趋势** | 额度快照本地持久化(SQLite,去重写入+400 天保留),变化趋势/每日消耗/**预计耗尽时间**(线性回归,明确标注「预测」,样本不足不显示) |
-| **额度提醒** | 剩余 50/20/10%、Token 包 7 天到期、Provider 数据停更、API 成本阈值;同一事件冷却去重(6 小时/天级) |
+| **额度提醒** | 剩余 50/20/10%、Token 包 7 天到期、额度即将重置(用量 ≥80% 且 30 分钟内重置)、Provider 数据停更、API 成本阈值;同一事件冷却去重(6 小时/天级) |
 | **ZCode 快捷启动** | 多路径自动检测 + 用户覆盖;未运行一键启动,已运行聚焦原窗口;状态/版本显示;托盘菜单直达;随本软件自动启动(可选) |
 | **凭据安全** | 火山引擎 AK/SK 存入 **Windows 凭据管理器**(keyring),不写文件、不进日志、不出现在任何 UI/错误信息 |
 
@@ -49,7 +49,7 @@
 
 ### 方式一:GitHub Actions 自动构建(推荐)
 
-推送到 GitHub 后,`\.github/workflows/build-windows.yml` 会在 `windows-latest` 上:
+推送到 GitHub 后,`.github/workflows/build-windows.yml` 会在 `windows-latest` 上:
 
 1. 运行 vitest 前端测试、`cargo test` 数据层测试;
 2. 运行 `cargo run --release --example bench`(100 万条合成记录基准);
@@ -63,7 +63,7 @@
 ```powershell
 git clone https://github.com/Cee-Ovo/zcode-usage-panel.git
 cd zcode-usage-panel
-npm install          # prebuild 钩子自动生成图标(纯 Node PNG 编码器,无额外依赖)
+npm install          # 安装依赖;图标由 predev/prebuild 钩子在 dev/build 前自动生成
 npm run tauri dev    # 开发调试
 npm run tauri build  # 产出 src-tauri/target/release/bundle/nsis/*.exe
 ```
@@ -112,7 +112,7 @@ Rust 侧独立线程的"吸附引擎"(`src-tauri/src/windows/snap.rs`),事件驱
 
 ## 系统托盘与 Popup
 
-- 关闭主窗口默认**最小化到托盘**(可改为退出);托盘菜单八项;`TaskbarCreated`(Explorer 重启)由 Tauri 托盘层处理图标重建。
+- 关闭主窗口默认**最小化到托盘**(可改为退出);托盘菜单十项;`TaskbarCreated`(Explorer 重启)由 Tauri 托盘层处理图标重建。
 - **左键单击托盘 → Glass Popup**:窗口定位依据 `TrayIconEvent` 的图标矩形 + `MonitorFromPoint` 工作区,自动适配任务栏上/下/左/右、多屏、DPI 并钳位;以 `SWP_NOACTIVATE` 显示**不抢占焦点**;光标离开 ~600ms(120ms 采样,仅在弹出期间)自动收起,Esc 或点击主窗口也会收起。
 
 ## 无边框窗口缩放

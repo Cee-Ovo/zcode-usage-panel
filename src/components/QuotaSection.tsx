@@ -1,6 +1,7 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { api } from "../lib/ipc";
+import { FxChip, FxCloseChip, FxSpinOnClick } from "./fx";
 import {
   backdropVariants,
   cardVariants,
@@ -9,6 +10,7 @@ import {
   softSpring,
   staggerContainer,
 } from "../lib/motion";
+import { displayModelName } from "../lib/modelDisplay";
 import { useStore } from "../lib/store";
 import type {
   HistoryPointDto,
@@ -62,9 +64,7 @@ export const QuotaSection = memo(function QuotaSection() {
         <div className="panel-title">
           服务额度
           <span className="right">
-            <button className="link-btn" onClick={refreshAll}>
-              刷新
-            </button>
+            <FxChip onClick={refreshAll}>刷新</FxChip>
           </span>
         </div>
         <div className="empty-state">正在初始化 Provider…</div>
@@ -80,9 +80,7 @@ export const QuotaSection = memo(function QuotaSection() {
           <span className="muted" style={{ fontSize: 10.5 }}>
             官方额度与本地用量分开统计
           </span>
-          <button className="link-btn" onClick={refreshAll}>
-            全部刷新
-          </button>
+          <FxChip onClick={refreshAll}>全部刷新</FxChip>
         </span>
       </div>
       <motion.div
@@ -113,17 +111,12 @@ function ProviderCard({ snap, onDetail }: { snap: ProviderSnapshot; onDetail: ()
   const statusClass = STATUS_CLASS[snap.status] ?? "idle";
   const zcodeWin = snap.provider === "zcode" ? snap.windows.find((w) => w.key === "today_tokens") : null;
 
-  const refresh = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    api.providersRefresh(snap.provider).catch(() => {});
-  };
-
   return (
     <motion.div
       layout
       variants={cardVariants}
       whileHover={{ y: -2 }}
-      whileTap={{ scale: 0.992 }}
+      whileTap={{ scale: 0.985 }}
       transition={softSpring}
       className={`quota-card status-${statusClass}`}
       onClick={onDetail}
@@ -136,13 +129,14 @@ function ProviderCard({ snap, onDetail }: { snap: ProviderSnapshot; onDetail: ()
           {PROVIDER_STATUS_LABELS[snap.status] ?? snap.status}
         </span>
         <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button
+          <FxSpinOnClick
             className="link-btn"
-            onClick={refresh}
+            onClick={() => api.providersRefresh(snap.provider).catch(() => {})}
             title={`刷新 ${label}`}
+            stopPropagation
           >
             ⟳
-          </button>
+          </FxSpinOnClick>
         </span>
       </div>
 
@@ -194,12 +188,18 @@ function ProviderCard({ snap, onDetail }: { snap: ProviderSnapshot; onDetail: ()
         </div>
       )}
 
-      {/* codex/antigravity local usage one-liner */}
-      {snap.localUsage && snap.provider !== "zcode" && snap.localUsage.allTime.totalTokens > 0 && (
+      {/* codex/antigravity local usage one-liner — shown whenever the local
+          source exists (a genuine 0 stays visible; missing data stays hidden
+          and the detail modal shows the explicit unavailable state) */}
+      {snap.localUsage && snap.provider !== "zcode" && (
         <div className="quota-row local">
-          <span className="quota-row-label">本地统计</span>
-          <span className="quota-row-value" title="本地 session 统计,与官方额度相互独立">
-            今日 {formatTokens(snap.localUsage.today.totalTokens)} · 累计{" "}
+          <span className="quota-row-label">本地日志 Token</span>
+          <span
+            className="quota-row-value"
+            title="本地 session 日志统计,与官方额度相互独立,不计入 ZCode 总 Token"
+          >
+            今日 {formatTokens(snap.localUsage.today.totalTokens)} · 7 天{" "}
+            {formatTokens(snap.localUsage.last7d.totalTokens)} · 累计{" "}
             {formatTokens(snap.localUsage.allTime.totalTokens)}
           </span>
         </div>
@@ -260,6 +260,8 @@ function QuotaRow({ w }: { w: QuotaWindow }) {
 /** ZCode 一键启动/唤醒。 */
 function ZcodeLauncher({ launcher }: { launcher: LauncherStatus | null }) {
   const [busy, setBusy] = useState(false);
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
   if (!launcher) return null;
   const running = launcher.state === "running";
   const notInstalled = launcher.state === "not_installed";
@@ -269,7 +271,9 @@ function ZcodeLauncher({ launcher }: { launcher: LauncherStatus | null }) {
     setBusy(true);
     (running ? api.zcodeReveal() : api.zcodeLaunch())
       .catch(() => {})
-      .finally(() => setTimeout(() => setBusy(false), 400));
+      .finally(() => {
+        timer.current = window.setTimeout(() => setBusy(false), 400);
+      });
   };
   return (
     <div className="zcode-launcher">
@@ -291,7 +295,7 @@ function ZcodeLauncher({ launcher }: { launcher: LauncherStatus | null }) {
 }
 
 /** Detail modal: trend + full data per provider. */
-function ProviderDetailModal({ provider, onClose }: { provider: string; onClose: () => void }) {
+export function ProviderDetailModal({ provider, onClose }: { provider: string; onClose: () => void }) {
   const snaps = useStore((s) => s.providers);
   const snap = snaps.find((p) => p.provider === provider);
   const [range, setRange] = useState<"today" | "7d" | "30d">("7d");
@@ -351,9 +355,7 @@ function ProviderDetailModal({ provider, onClose }: { provider: string; onClose:
             {snap.planName ? <span className="muted"> · {snap.planName}</span> : null}
           </span>
           <span className="right">
-            <button className="model-chip" onClick={onClose}>
-              ✕
-            </button>
+            <FxCloseChip onClick={onClose} />
           </span>
         </div>
 
@@ -421,15 +423,21 @@ function ProviderDetailModal({ provider, onClose }: { provider: string; onClose:
           </>
         )}
 
-        {snap.localUsage && (snap.localUsage.allTime.totalTokens > 0 || snap.localUsage.today.totalTokens > 0) && (
+        {snap.localUsage && (
           <>
             <div className="panel-title modal-section">
               本地 Harness 用量统计
               <span className="right muted" style={{ fontSize: 10.5 }}>
-                来自本地 session 文件 ≠ 官方剩余额度
+                来自本地 session 文件 ≠ 官方剩余额度 ≠ 实际 Billing
               </span>
             </div>
             <LocalUsageTable usage={snap.localUsage} />
+            {snap.localUsage.models.length > 0 && (
+              <LocalModelUsage
+                models={snap.localUsage.models}
+                source={provider === "codex" ? "codex" : null}
+              />
+            )}
           </>
         )}
 
@@ -478,45 +486,130 @@ function PackageRow({ p }: { p: PackageInfo }) {
 }
 
 function LocalUsageTable({ usage }: { usage: NonNullable<ProviderSnapshot["localUsage"]> }) {
-  const rows: [string, string, string][] = [
-    ["Input", formatTokens(usage.today.inputTokens), formatTokens(usage.allTime.inputTokens)],
+  const rows: [string, string, string, string][] = [
+    [
+      "Input",
+      formatTokens(usage.today.inputTokens),
+      formatTokens(usage.last7d.inputTokens),
+      formatTokens(usage.allTime.inputTokens),
+    ],
     [
       "Cached Input",
       formatTokens(usage.today.cachedInputTokens),
+      formatTokens(usage.last7d.cachedInputTokens),
       formatTokens(usage.allTime.cachedInputTokens),
     ],
     [
       "Cache Write",
       formatTokens(usage.today.cacheWriteTokens),
+      formatTokens(usage.last7d.cacheWriteTokens),
       formatTokens(usage.allTime.cacheWriteTokens),
     ],
-    ["Output", formatTokens(usage.today.outputTokens), formatTokens(usage.allTime.outputTokens)],
+    [
+      "Output",
+      formatTokens(usage.today.outputTokens),
+      formatTokens(usage.last7d.outputTokens),
+      formatTokens(usage.allTime.outputTokens),
+    ],
     [
       "Reasoning",
       formatTokens(usage.today.reasoningTokens),
+      formatTokens(usage.last7d.reasoningTokens),
       formatTokens(usage.allTime.reasoningTokens),
     ],
-    ["Total", formatTokens(usage.today.totalTokens), formatTokens(usage.allTime.totalTokens)],
+    [
+      "Total",
+      formatTokens(usage.today.totalTokens),
+      formatTokens(usage.last7d.totalTokens),
+      formatTokens(usage.allTime.totalTokens),
+    ],
   ];
   return (
     <div className="local-usage">
       <div className="model-row model-head local-usage-head">
         <span>分项</span>
         <span style={{ textAlign: "right" }}>今日</span>
+        <span style={{ textAlign: "right" }}>7 天</span>
         <span style={{ textAlign: "right" }}>累计</span>
       </div>
-      {rows.map(([k, today, all]) => (
+      {rows.map(([k, today, last7d, all]) => (
         <div key={k} className="model-row local-usage-row">
           <span>{k}</span>
           <span className="num">{today}</span>
+          <span className="num">{last7d}</span>
           <span className="num">{all}</span>
         </div>
       ))}
       <div className="model-row local-usage-row">
         <span className="muted">Sessions / 模型数</span>
         <span className="num">{usage.sessions}</span>
+        <span className="num" />
         <span className="num">{usage.models.length}</span>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Per-model local usage (all-time, sorted desc by the provider). First screen
+ * caps at 5 rows with an expand toggle. Codex-sourced names get the （Codex）
+ * display badge; raw names stay untouched for any further lookups.
+ */
+function LocalModelUsage({
+  models,
+  source,
+}: {
+  models: NonNullable<ProviderSnapshot["localUsage"]>["models"];
+  source: "codex" | null;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const sorted = useMemo(
+    () => [...models].sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens),
+    [models],
+  );
+  const shown = expanded ? sorted : sorted.slice(0, 5);
+  return (
+    <div className="local-models" style={{ marginTop: 8 }}>
+      <div className="model-row model-head local-usage-head" style={{ gridTemplateColumns: "minmax(140px,1.4fr) repeat(5, minmax(56px,1fr))" }}>
+        <span>模型(累计)</span>
+        <span style={{ textAlign: "right" }}>Total</span>
+        <span style={{ textAlign: "right" }}>Input</span>
+        <span style={{ textAlign: "right" }}>Cached In</span>
+        <span style={{ textAlign: "right" }}>Output</span>
+        <span style={{ textAlign: "right" }}>Reasoning</span>
+      </div>
+      <AnimatePresence initial={false}>
+        {shown.map((m) => (
+          <motion.div
+            key={m.model}
+            layout="position"
+            className="model-row local-usage-row"
+            style={{ gridTemplateColumns: "minmax(140px,1.4fr) repeat(5, minmax(56px,1fr))" }}
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={softSpring}
+          >
+            <span className="name" title={m.model}>
+              {displayModelName(m.model, source)}
+            </span>
+            <span className="num" style={{ fontWeight: 600 }}>
+              {formatTokens(m.breakdown.totalTokens)}
+            </span>
+            <span className="num">{formatTokens(m.breakdown.inputTokens)}</span>
+            <span className="num">{formatTokens(m.breakdown.cachedInputTokens)}</span>
+            <span className="num">{formatTokens(m.breakdown.outputTokens)}</span>
+            <span className="num">{formatTokens(m.breakdown.reasoningTokens)}</span>
+          </motion.div>
+        ))}
+      </AnimatePresence>
+      {sorted.length > 5 && (
+        <div style={{ marginTop: 4 }}>
+          <FxChip onClick={() => setExpanded(!expanded)}>
+            {expanded ? "收起" : `展开全部 (${sorted.length})`}
+          </FxChip>
+        </div>
+      )}
     </div>
   );
 }

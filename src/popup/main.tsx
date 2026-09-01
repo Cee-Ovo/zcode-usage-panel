@@ -110,14 +110,14 @@ function Popup() {
   return (
     <div className="popup-card">
       <div className="popup-head">
-        <span className="popup-title">今日用量</span>
+        <span className="popup-title">ZCode 今日用量</span>
         <span className="muted" style={{ fontSize: 10.5 }}>
           {update?.restoredFromCache ? "缓存" : "实时"}
         </span>
       </div>
       {dash ? (
         <>
-          <div className="popup-total">
+          <div className="popup-total" title="ZCode 本地 usage 记录统计">
             {formatTokens(totalTokens(dash.agg))} <small>tokens</small>
           </div>
           <div className="popup-sub">{formatFull(totalTokens(dash.agg))} tokens</div>

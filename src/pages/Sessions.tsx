@@ -2,12 +2,13 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { SearchField } from "open-glass-ui";
 import { TrendChart } from "../components/TrendChart";
+import { FxCloseChip } from "../components/fx";
 import { api } from "../lib/ipc";
 import { store, useStore } from "../lib/store";
 import type { SessionSummary } from "../lib/types";
 import { cacheHitRate, totalTokens } from "../lib/types";
 import { formatDateTime, formatRelative, formatTokens, shortSessionId } from "../lib/format";
-import { backdropVariants, dialogVariants, listItemVariants } from "../lib/motion";
+import { backdropVariants, dialogVariants, listItemVariants, rowGestures, softSpring } from "../lib/motion";
 
 export function SessionsPage() {
   const sessions = useStore((s) => s.sessions);
@@ -85,12 +86,7 @@ export function SessionsPage() {
               <div className="panel-title">
                 Session 详情 · {shortSessionId(detail.summary.id)}
                 <span className="right">
-                  <button
-                    className="model-chip"
-                    onClick={() => store.set({ sessionDetail: null })}
-                  >
-                    关闭
-                  </button>
+                  <FxCloseChip onClick={() => store.set({ sessionDetail: null })} />
                 </span>
               </div>
               <div className="kv" style={{ marginBottom: 12 }}>
@@ -134,6 +130,8 @@ function SessionLine({ s }: { s: SessionSummary }) {
       initial="initial"
       animate="enter"
       exit="exit"
+      {...rowGestures}
+      transition={softSpring}
       onClick={() => {
         api
           .sessionDetail(s.id)

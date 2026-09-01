@@ -1,11 +1,17 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
+import { titleSpring } from "../lib/motion";
 
 const win = () => getCurrentWindow();
 
 /** Custom title bar: `data-tauri-drag-region` gives native drag-to-move
  *  (double-click toggles maximize/restore). Window-control buttons sit on
- *  top and keep their own click handling. */
+ *  top and keep their own click handling.
+ *
+ *  Motion notes: titlebar controls stay fast + precise (small scales, stiff
+ *  spring, no magnet). The refresh icon replays one 360° sweep per click —
+ *  all of it suppressed under prefers-reduced-motion. */
 export function TitleBar({
   title,
   onRefresh,
@@ -13,6 +19,12 @@ export function TitleBar({
   title: string;
   onRefresh?: () => void;
 }) {
+  const reduce = useReducedMotion();
+  const press = {
+    whileHover: { scale: 1.08 },
+    whileTap: { scale: 0.86, y: 0.5 },
+    transition: titleSpring,
+  };
   return (
     <div className="zup-titlebar" data-tauri-drag-region>
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
@@ -36,35 +48,71 @@ export function TitleBar({
         {title}
       </span>
       <span className="spacer" data-tauri-drag-region />
-      <button
-        className="zup-nav-item"
-        title="立即刷新"
-        onClick={() => onRefresh?.()}
-        style={{ padding: "4px 10px" }}
-      >
-        <RefreshIcon />
-      </button>
-      <button
-        className="zup-nav-item"
+      <RefreshTitleButton onRefresh={onRefresh} reduce={reduce} />
+      <motion.button
+        type="button"
+        className="zup-nav-item titlebar-btn"
         title="最小化"
+        aria-label="最小化"
         onClick={() => win().minimize()}
         style={{ padding: "4px 10px" }}
+        {...press}
       >
         <MinIcon />
-      </button>
-      <button
-        className="zup-nav-item"
+      </motion.button>
+      <motion.button
+        type="button"
+        className="zup-nav-item titlebar-btn"
         title="最小化到托盘"
+        aria-label="最小化到托盘"
         onClick={() =>
           import("../lib/ipc")
             .then(({ api }) => api.hideMainWindow())
             .catch(() => win().hide())
         }
         style={{ padding: "4px 10px" }}
+        {...press}
       >
         <TrayIcon />
-      </button>
+      </motion.button>
     </div>
+  );
+}
+
+/** 标题栏刷新:按下即旋转一周,语义化反馈(非无限循环)。 */
+function RefreshTitleButton({
+  onRefresh,
+  reduce,
+}: {
+  onRefresh?: () => void;
+  reduce: boolean | null;
+}) {
+  const [sweep, setSweep] = useState(0);
+  return (
+    <motion.button
+      type="button"
+      className="zup-nav-item titlebar-btn"
+      title="立即刷新"
+      aria-label="立即刷新"
+      onClick={() => {
+        setSweep((n) => n + 1);
+        onRefresh?.();
+      }}
+      style={{ padding: "4px 10px" }}
+      whileHover={{ scale: 1.08 }}
+      whileTap={{ scale: 0.86, y: 0.5 }}
+      transition={titleSpring}
+    >
+      <motion.span
+        key={sweep}
+        style={{ display: "inline-flex" }}
+        initial={false}
+        animate={sweep > 0 && !reduce ? { rotate: 360 } : undefined}
+        transition={{ duration: 0.5, ease: [0.35, 0.6, 0.35, 1] }}
+      >
+        <RefreshIcon />
+      </motion.span>
+    </motion.button>
   );
 }
 

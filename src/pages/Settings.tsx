@@ -1,6 +1,8 @@
-import { Fragment, useEffect, useState } from "react";
-import { Button, SegmentedControl, Switch, TextField } from "open-glass-ui";
+import { Fragment, useEffect, useRef, useState } from "react";
+import { SegmentedControl, Switch, TextField } from "open-glass-ui";
+import { motion } from "motion/react";
 import { api } from "../lib/ipc";
+import { FxButton, useAction } from "../components/fx";
 import { store, useStore } from "../lib/store";
 import type {
   CredentialsStatusDto,
@@ -42,11 +44,13 @@ export function SettingsPage() {
   const version = useStore((s) => s.version);
   const [draft, setDraft] = useState<Settings | null>(null);
   const [diag, setDiag] = useState<DiagnoseDto | null>(null);
-  const [saving, setSaving] = useState(false);
   const [table, setTable] = useState<PricingTableDto | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [expandedModel, setExpandedModel] = useState<string | null>(null);
+  // brief highlight on the section a nav chip jumps to
+  const [flash, setFlash] = useState<string | null>(null);
+  const flashTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(flashTimer.current), []);
 
   useEffect(() => {
     if (settings && !draft) setDraft(structuredClone(settings));
@@ -55,6 +59,23 @@ export function SettingsPage() {
   useEffect(() => {
     api.pricingTable().then(setTable).catch(() => {});
   }, []);
+
+  // hooks must run before the early return below (rules of hooks)
+  const save = useAction(
+    async () => {
+      if (!draft) return;
+      const applied = await api.saveSettings(draft);
+      store.set({ settings: applied });
+    },
+    { okText: "已保存" },
+  );
+
+  const diagnose = useAction(
+    async () => {
+      setDiag(await api.diagnose());
+    },
+    { okText: "检测完成" },
+  );
 
   if (!draft) return <div className="empty-state">加载设置…</div>;
 
@@ -70,18 +91,11 @@ export function SettingsPage() {
   const quota = (patch: Partial<Settings["quotaAlerts"]>) =>
     setDraft({ ...draft, quotaAlerts: { ...draft.quotaAlerts, ...patch } });
 
-  const save = async () => {
-    setSaving(true);
-    try {
-      const applied = await api.saveSettings(draft);
-      store.set({ settings: applied });
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const jump = (id: string) => {
     document.getElementById(`sec-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setFlash(id);
+    window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setFlash(null), 900);
   };
 
   return (
@@ -100,14 +114,26 @@ export function SettingsPage() {
       >
         <strong style={{ fontSize: 13 }}>设置</strong>
         <span style={{ marginLeft: "auto" }} />
-        <Button onClick={save} disabled={saving}>
-          {saving ? "保存中…" : "保存设置"}
-        </Button>
+        <FxButton
+          variant="primary"
+          size="small"
+          magnetic
+          action={save}
+          busyLabel="保存中…"
+          okText="已保存"
+          title="保存全部设置(任意分区)"
+        >
+          保存设置
+        </FxButton>
       </div>
 
       <div className="settings-nav">
         {SECTIONS.map(([id, label]) => (
-          <button key={id} className="settings-nav-btn" onClick={() => jump(id)}>
+          <button
+            key={id}
+            className={`settings-nav-btn ${flash === id ? "flash" : ""}`}
+            onClick={() => jump(id)}
+          >
             {label}
           </button>
         ))}
@@ -232,9 +258,9 @@ export function SettingsPage() {
         </div>
         <LauncherProbe />
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-          <Button variant="quiet" onClick={async () => setDiag(await api.diagnose())}>
+          <FxButton variant="quiet" size="small" action={diagnose} busyLabel="检测中…">
             检测数据源
-          </Button>
+          </FxButton>
         </div>
         {diag && <DiagnosePanel diag={diag} />}
       </section>
@@ -377,8 +403,6 @@ export function SettingsPage() {
           setTable={setTable}
           draft={draft}
           set={set}
-          refreshing={refreshing}
-          setRefreshing={setRefreshing}
           refreshMsg={refreshMsg}
           setRefreshMsg={setRefreshMsg}
           expandedModel={expandedModel}
@@ -635,9 +659,9 @@ export function SettingsPage() {
           <span>系统凭据管理器(Windows Credential Manager);不写文件、不进日志</span>
         </div>
         <div style={{ marginTop: 10 }}>
-          <Button variant="quiet" onClick={() => api.quitApp()}>
+          <FxButton variant="danger" size="small" onClick={() => api.quitApp()}>
             退出应用
-          </Button>
+          </FxButton>
         </div>
       </section>
     </div>
@@ -695,31 +719,29 @@ function ExportBtn({
   format: string;
   label: string;
 }) {
-  const [busy, setBusy] = useState(false);
+  const exportAction = useAction(
+    async () => {
+      await api.exportData(scope, format, draft.defaultRange, "");
+    },
+    { okText: "已导出" },
+  );
   return (
-    <Button
-      variant="quiet"
-      disabled={busy}
-      onClick={async () => {
-        setBusy(true);
-        try {
-          await api.exportData(scope, format, draft.defaultRange, "");
-        } catch (e) {
-          console.warn("export cancelled or failed:", e);
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
+    <FxButton variant="quiet" size="small" action={exportAction} busyLabel="导出中…">
       {label}
-    </Button>
+    </FxButton>
   );
 }
 
 /** Launcher detection feedback(不保存也即时探测)。 */
 function LauncherProbe() {
   const [status, setStatus] = useState<LauncherStatus | null>(null);
-  const [busy, setBusy] = useState(false);
+  const launchAction = useAction(
+    async () => {
+      const r = await api.zcodeLaunch();
+      setStatus(r.snapshot.launcher ?? null);
+    },
+    { okText: "已唤醒" },
+  );
   useEffect(() => {
     api
       .zcodeStatus()
@@ -742,23 +764,15 @@ function LauncherProbe() {
         </div>
       </div>
       <span style={{ display: "flex", gap: 8 }}>
-        <Button
+        <FxButton
           variant="quiet"
-          disabled={busy || status?.state === "not_installed"}
-          onClick={async () => {
-            setBusy(true);
-            try {
-              const r = await api.zcodeLaunch();
-              setStatus(r.snapshot.launcher ?? null);
-            } catch {
-              /* ignore */
-            } finally {
-              setBusy(false);
-            }
-          }}
+          size="small"
+          action={launchAction}
+          disabled={status?.state === "not_installed"}
+          busyLabel="启动中…"
         >
-          {busy ? "启动中…" : status?.state === "running" ? "聚焦窗口" : "启动 ZCode"}
-        </Button>
+          {status?.state === "running" ? "聚焦窗口" : "启动 ZCode"}
+        </FxButton>
       </span>
     </div>
   );
@@ -770,54 +784,54 @@ function VolcengineCredentials() {
   const [ak, setAk] = useState("");
   const [sk, setSk] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [busy, setBusy] = useState(false);
 
   const refresh = () => api.volcengineCredentialsStatus().then(setStatus).catch(() => {});
   useEffect(() => {
     refresh();
   }, []);
 
-  const save = async () => {
-    setBusy(true);
-    setMsg(null);
-    try {
-      await api.volcengineCredentialsSet(ak.trim(), sk.trim());
-      setAk("");
-      setSk("");
-      setMsg({ ok: true, text: "已保存到系统凭据管理器" });
-      refresh();
-    } catch (e) {
-      setMsg({ ok: false, text: String(e) });
-    } finally {
-      setBusy(false);
-    }
-  };
+  const save = useAction(
+    async () => {
+      try {
+        await api.volcengineCredentialsSet(ak.trim(), sk.trim());
+        setAk("");
+        setSk("");
+        setMsg({ ok: true, text: "已保存到系统凭据管理器" });
+        refresh();
+      } catch (e) {
+        setMsg({ ok: false, text: String(e) });
+        throw e; // let the button show its error phase
+      }
+    },
+    { okText: "已保存" },
+  );
 
-  const test = async () => {
-    setBusy(true);
-    setMsg(null);
-    try {
-      const text = await api.volcengineTest();
-      setMsg({ ok: true, text });
-    } catch (e) {
-      setMsg({ ok: false, text: String(e) });
-    } finally {
-      setBusy(false);
-    }
-  };
+  const test = useAction(
+    async () => {
+      try {
+        const text = await api.volcengineTest();
+        setMsg({ ok: true, text });
+      } catch (e) {
+        setMsg({ ok: false, text: String(e) });
+        throw e;
+      }
+    },
+    { okText: "连接正常" },
+  );
 
-  const clear = async () => {
-    setBusy(true);
-    try {
-      await api.volcengineCredentialsClear();
-      setMsg({ ok: true, text: "已清除凭据" });
-      refresh();
-    } catch (e) {
-      setMsg({ ok: false, text: String(e) });
-    } finally {
-      setBusy(false);
-    }
-  };
+  const clear = useAction(
+    async () => {
+      try {
+        await api.volcengineCredentialsClear();
+        setMsg({ ok: true, text: "已清除凭据" });
+        refresh();
+      } catch (e) {
+        setMsg({ ok: false, text: String(e) });
+        throw e;
+      }
+    },
+    { okText: "已清除" },
+  );
 
   return (
     <div style={{ marginTop: 12 }}>
@@ -840,19 +854,36 @@ function VolcengineCredentials() {
         />
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
-        <Button onClick={save} disabled={busy || ak.trim() === "" || sk.trim() === ""}>
+        <FxButton
+          variant="primary"
+          size="small"
+          action={save}
+          busyLabel="保存中…"
+          disabled={ak.trim() === "" || sk.trim() === ""}
+        >
           保存凭据
-        </Button>
-        <Button variant="quiet" onClick={test} disabled={busy}>
+        </FxButton>
+        <FxButton variant="quiet" size="small" action={test} busyLabel="测试中…">
           测试连接
-        </Button>
-        <Button variant="quiet" onClick={clear} disabled={busy || !status?.configured}>
+        </FxButton>
+        <FxButton
+          variant="danger"
+          size="small"
+          action={clear}
+          busyLabel="清除中…"
+          disabled={!status?.configured}
+        >
           清除
-        </Button>
+        </FxButton>
         {msg && (
-          <span style={{ fontSize: 11, color: msg.ok ? "var(--zup-text-3)" : "var(--zup-danger)" }}>
+          <motion.span
+            key={msg.text}
+            initial={{ opacity: 0, y: -3 }}
+            animate={{ opacity: 1, y: 0 }}
+            style={{ fontSize: 11, color: msg.ok ? "var(--zup-text-3)" : "var(--zup-danger)" }}
+          >
             {msg.text}
-          </span>
+          </motion.span>
         )}
       </div>
     </div>
@@ -918,8 +949,6 @@ function PriceSection({
   setTable,
   draft,
   set,
-  refreshing,
-  setRefreshing,
   refreshMsg,
   setRefreshMsg,
   expandedModel,
@@ -929,39 +958,40 @@ function PriceSection({
   setTable: (t: PricingTableDto | null) => void;
   draft: Settings;
   set: (patch: Partial<Settings>) => void;
-  refreshing: boolean;
-  setRefreshing: (v: boolean) => void;
   refreshMsg: { ok: boolean; text: string } | null;
   setRefreshMsg: (m: { ok: boolean; text: string } | null) => void;
   expandedModel: string | null;
   setExpandedModel: (m: string | null) => void;
 }) {
-  const refreshPrices = async () => {
-    setRefreshing(true);
-    setRefreshMsg(null);
-    try {
-      const r = await api.pricingRefresh();
-      if (r.ok && r.fxOk) {
-        setRefreshMsg({ ok: true, text: `已更新 · ${r.refreshedAt}` });
-      } else if (r.ok) {
-        setRefreshMsg({
-          ok: true,
-          text: `价格表已更新,但汇率获取失败${r.error ? ` · ${r.error}` : ""}`,
-        });
-      } else {
-        setRefreshMsg({ ok: false, text: r.error ?? "更新失败" });
-      }
-    } catch (e) {
-      setRefreshMsg({ ok: false, text: String(e) });
-    } finally {
-      setRefreshing(false);
+  const refreshAction = useAction(
+    async () => {
+      setRefreshMsg(null);
       try {
-        setTable(await api.pricingTable());
-      } catch {
-        /* ignore */
+        const r = await api.pricingRefresh();
+        if (r.ok && r.fxOk) {
+          setRefreshMsg({ ok: true, text: `已更新 · ${r.refreshedAt}` });
+        } else if (r.ok) {
+          setRefreshMsg({
+            ok: true,
+            text: `价格表已更新,但汇率获取失败${r.error ? ` · ${r.error}` : ""}`,
+          });
+        } else {
+          setRefreshMsg({ ok: false, text: r.error ?? "更新失败" });
+          throw new Error(r.error ?? "更新失败");
+        }
+      } catch (e) {
+        if (!(e instanceof Error)) setRefreshMsg({ ok: false, text: String(e) });
+        throw e; // propagate so the button enters its error phase
+      } finally {
+        try {
+          setTable(await api.pricingTable());
+        } catch {
+          /* ignore */
+        }
       }
-    }
-  };
+    },
+    { okText: "已更新" },
+  );
 
   return (
     <>
@@ -974,9 +1004,9 @@ function PriceSection({
           marginBottom: 10,
         }}
       >
-        <Button onClick={refreshPrices} disabled={refreshing}>
-          {refreshing ? "更新中…" : "更新价格"}
-        </Button>
+        <FxButton action={refreshAction} busyLabel="更新中…">
+          更新价格
+        </FxButton>
         {refreshMsg && (
           <span
             style={{
@@ -1102,12 +1132,13 @@ function PriceSection({
                       <div>{m}</div>
                       <div className="desc">没有官方价格表条目,手动覆盖后可参与成本估算</div>
                     </div>
-                    <Button
+                    <FxButton
                       variant="quiet"
+                      size="small"
                       onClick={() => setExpandedModel(expandedModel === m ? null : m)}
                     >
                       手动覆盖
-                    </Button>
+                    </FxButton>
                   </div>
                   {expandedModel === m && (
                     <div className="price-override">
@@ -1168,7 +1199,6 @@ function OverrideForm({
   onSaved: (t: PricingTableDto) => void;
 }) {
   const [form, setForm] = useState<OverrideFormState>(initial);
-  const [busy, setBusy] = useState(false);
 
   const set = (patch: Partial<OverrideFormState>) => setForm((f) => ({ ...f, ...patch }));
 
@@ -1185,9 +1215,8 @@ function OverrideForm({
     return Number.isFinite(n) ? n : null;
   };
 
-  const save = async () => {
-    setBusy(true);
-    try {
+  const save = useAction(
+    async () => {
       const dto: OverrideDto = {
         currency: form.currency,
         inputPerM: toRequired(form.input),
@@ -1201,24 +1230,17 @@ function OverrideForm({
       };
       const t = await api.pricingOverride(model, dto);
       onSaved(t);
-    } catch (e) {
-      console.warn("pricing override failed:", e);
-    } finally {
-      setBusy(false);
-    }
-  };
+    },
+    { okText: "已保存" },
+  );
 
-  const clear = async () => {
-    setBusy(true);
-    try {
+  const clear = useAction(
+    async () => {
       const t = await api.pricingOverride(model, null);
       onSaved(t);
-    } catch (e) {
-      console.warn("pricing override clear failed:", e);
-    } finally {
-      setBusy(false);
-    }
-  };
+    },
+    { okText: "已恢复" },
+  );
 
   return (
     <div>
@@ -1234,17 +1256,18 @@ function OverrideForm({
               { value: "USD", label: "USD" },
             ]}
           />
-          <Button
+          <FxButton
             variant="quiet"
-            onClick={clear}
-            disabled={busy}
+            size="small"
+            action={clear}
+            busyLabel="处理中…"
             title={overridden ? "恢复官方价,清除覆盖" : "清除该模型的覆盖(若存在)"}
           >
             {overridden ? "恢复官方价" : "清除覆盖"}
-          </Button>
-          <Button onClick={save} disabled={busy}>
-            {busy ? "保存中…" : "保存"}
-          </Button>
+          </FxButton>
+          <FxButton variant="primary" size="small" action={save} busyLabel="保存中…">
+            保存
+          </FxButton>
         </div>
       </div>
       <div className="override-grid">

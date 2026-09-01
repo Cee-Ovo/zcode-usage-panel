@@ -1,13 +1,15 @@
 import { useState } from "react";
-import { Button, SegmentedControl } from "open-glass-ui";
+import { SegmentedControl } from "open-glass-ui";
 import { AnimatePresence, motion } from "motion/react";
 import { AnimatedNumber } from "../components/AnimatedNumber";
+import { CodexUsagePanel } from "../components/CodexUsagePanel";
 import { CostDetailModal } from "../components/CostDetailModal";
 import { MetricCard, InfoDot } from "../components/MetricCard";
 import { QuotaSection } from "../components/QuotaSection";
 import { TrendChart } from "../components/TrendChart";
+import { FxButton, useAction } from "../components/fx";
 import { api } from "../lib/ipc";
-import { listItemVariants, softSpring, staggerContainer } from "../lib/motion";
+import { listItemVariants, rowGestures, softSpring, staggerContainer } from "../lib/motion";
 import { store, useStore } from "../lib/store";
 import type { ModelCost, ModelRow } from "../lib/types";
 import { cacheHitRate, totalTokens } from "../lib/types";
@@ -24,7 +26,7 @@ import {
 const HIT_HINT =
   "Cache Hit Rate = cached input ÷ total input(逐条记录自动判定口径:inclusive schema 用 cached/input;exclusive schema 用 cache_read ÷ (input+cache_read+cache_write))。无 cache 字段的数据不计入,显示 unavailable。";
 const TOTAL_HINT =
-  "总 Token = Input + Output + Reasoning + Cache(读+写),仅累加数据源真实提供的字段;未提供的字段不计入、不推算。";
+  "ZCode 总 Token = Input + Output + Reasoning + Cache(读+写),仅统计 ZCode 本地 usage 记录;\n与下方 Codex 本地 Token、服务额度区的官方套餐额度分开统计,互不计入。";
 
 export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) => void }) {
   const dash = useStore((s) => s.dash);
@@ -35,6 +37,13 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
   const alerts = useStore((s) => s.alerts);
   const [expanded, setExpanded] = useState(false);
   const [costModalModel, setCostModalModel] = useState<string | null>(null);
+
+  const refreshAction = useAction(
+    async () => {
+      await api.refreshNow();
+    },
+    { okText: "已刷新" },
+  );
 
   if (!dash) {
     return <div className="empty-state">正在加载 ZCode 用量数据…</div>;
@@ -49,7 +58,13 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
   const unknownCount = costSummary?.unknownModels.length ?? 0;
 
   return (
-    <div className="zup-grid" style={{ paddingTop: 6 }}>
+    <motion.div
+      className="zup-grid"
+      style={{ paddingTop: 6 }}
+      variants={staggerContainer}
+      initial="initial"
+      animate="enter"
+    >
       {/* range selector */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <SegmentedControl
@@ -65,26 +80,29 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
           </span>
         )}
         <span style={{ marginLeft: "auto" }}>
-          <Button
+          <FxButton
             variant="quiet"
-            onClick={() => {
-              api.refreshNow();
-            }}
+            size="small"
+            action={refreshAction}
+            busyLabel="刷新中…"
+            title="立即刷新 ZCode 数据与所有 Provider"
           >
             立即刷新
-          </Button>
+          </FxButton>
         </span>
       </div>
 
-      {/* core metrics */}
+      {/* core metrics (ZCode only — Codex local tokens get their own panel
+          below; official plan quotas live in the quota section) */}
       <motion.div
+        key={rangeKey}
         className="zup-grid metrics-grid"
         variants={staggerContainer}
         initial="initial"
         animate="enter"
       >
         <MetricCard
-          label="总 Token"
+          label="ZCode 总 Token"
           value={<AnimatedNumber value={totalTokens(agg)} format={formatTokens} />}
           sub={`${formatFull(totalTokens(agg))} tokens`}
           hint={TOTAL_HINT}
@@ -172,6 +190,9 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
         />
       </motion.div>
 
+      {/* Codex 本地 Token(独立于 ZCode 指标与官方额度) */}
+      <CodexUsagePanel />
+
       {/* AI service quotas (Codex / Antigravity / Volcengine + ZCode card) */}
       <QuotaSection />
 
@@ -181,9 +202,9 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
           模型排行
           <span className="right muted">
             {dash.models.length > 3 && (
-              <Button variant="quiet" onClick={() => setExpanded(!expanded)}>
+              <FxButton variant="quiet" size="small" onClick={() => setExpanded(!expanded)}>
                 {expanded ? "收起" : `展开全部 (${dash.models.length})`}
-              </Button>
+              </FxButton>
             )}
           </span>
         </div>
@@ -205,7 +226,7 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
           {models.map((m) => (
             <ModelLine
               key={m.name}
-              m={m}
+              row={m}
               cost={costByModel.get(m.name)}
               onCostClick={() => setCostModalModel(m.name)}
             />
@@ -301,20 +322,20 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
           />
         )}
       </AnimatePresence>
-    </div>
+    </motion.div>
   );
 }
 
 function ModelLine({
-  m,
+  row,
   cost,
   onCostClick,
 }: {
-  m: ModelRow;
+  row: ModelRow;
   cost: ModelCost | undefined;
   onCostClick: () => void;
 }) {
-  const hit = cacheHitRate(m.agg);
+  const hit = cacheHitRate(row.agg);
   return (
     <motion.div
       layout="position"
@@ -322,33 +343,33 @@ function ModelLine({
       initial="initial"
       animate="enter"
       exit="exit"
-      whileHover={{ x: 2 }}
+      {...rowGestures}
       transition={softSpring}
       className="model-row"
       onClick={() => {
         store.set({ page: "models" });
-        api.modelDetail(m.name).then((d) => store.set({ modelDetail: d })).catch(() => {});
+        api.modelDetail(row.name).then((d) => store.set({ modelDetail: d })).catch(() => {});
       }}
       title="点击查看模型详情"
     >
       <div>
-        <div className="name">{m.name}</div>
+        <div className="name">{row.name}</div>
         <div className="share-track">
-          <div className="share-fill" style={{ width: `${Math.round(m.share * 100)}%` }} />
+          <div className="share-fill" style={{ width: `${Math.round(row.share * 100)}%` }} />
         </div>
       </div>
-      <span className="num">{formatTokens(totalTokens(m.agg))}</span>
-      <span className="num">{(m.share * 100).toFixed(1)}%</span>
-      <span className="num">{formatTokens(m.agg.input)}</span>
-      <span className="num">{formatTokens(m.agg.output)}</span>
+      <span className="num">{formatTokens(totalTokens(row.agg))}</span>
+      <span className="num">{(row.share * 100).toFixed(1)}%</span>
+      <span className="num">{formatTokens(row.agg.input)}</span>
+      <span className="num">{formatTokens(row.agg.output)}</span>
       <span className="num">
-        {m.agg.reasoning.present > 0 ? formatTokens(m.agg.reasoning.sum) : "—"}
+        {row.agg.reasoning.present > 0 ? formatTokens(row.agg.reasoning.sum) : "—"}
       </span>
       <span className="num">
-        {m.agg.cacheRead.present > 0 ? formatTokens(m.agg.cacheRead.sum) : "—"}
+        {row.agg.cacheRead.present > 0 ? formatTokens(row.agg.cacheRead.sum) : "—"}
       </span>
       <span className="num">
-        {hit === null ? "—" : `${(hit * 100).toFixed(0)}% · ${formatFull(m.agg.requests)}`}
+        {hit === null ? "—" : `${(hit * 100).toFixed(0)}% · ${formatFull(row.agg.requests)}`}
       </span>
       <span
         className="num"

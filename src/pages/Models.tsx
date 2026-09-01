@@ -8,7 +8,8 @@ import { store, useStore } from "../lib/store";
 import type { ModelDetailDto } from "../lib/types";
 import { cacheHitRate, totalTokens } from "../lib/types";
 import { formatCny, formatFull, formatPercent, formatRelative, formatTokens, shortSessionId } from "../lib/format";
-import { backdropVariants, dialogVariants, listItemVariants } from "../lib/motion";
+import { backdropVariants, dialogVariants, listItemVariants, rowGestures, softSpring } from "../lib/motion";
+import { FxCloseChip } from "../components/fx";
 
 export function ModelsPage() {
   const dash = useStore((s) => s.dash);
@@ -26,18 +27,20 @@ export function ModelsPage() {
         <div className="panel-title">全部模型(当前时间范围)</div>
         {dash.models.length === 0 && <div className="empty-state">该范围内没有模型调用</div>}
         <AnimatePresence initial={false}>
-          {dash.models.map((m, i) => (
+          {dash.models.map((row, i) => (
             <motion.div
-              key={m.name}
+              key={row.name}
               className="model-row"
               layout="position"
               variants={listItemVariants}
               initial="initial"
               animate="enter"
               exit="exit"
+              {...rowGestures}
+              transition={softSpring}
               onClick={() =>
                 api
-                  .modelDetail(m.name)
+                  .modelDetail(row.name)
                   .then((d) => store.set({ modelDetail: d }))
                   .catch(() => {})
               }
@@ -48,30 +51,30 @@ export function ModelsPage() {
                   <span className="muted" style={{ marginRight: 6 }}>
                     {i + 1}.
                   </span>
-                  {m.name}
+                  {row.name}
                 </div>
                 <div className="share-track">
-                  <div className="share-fill" style={{ width: `${Math.round(m.share * 100)}%` }} />
+                  <div className="share-fill" style={{ width: `${Math.round(row.share * 100)}%` }} />
                 </div>
               </div>
-              <span className="num">{formatTokens(totalTokens(m.agg))}</span>
-              <span className="num">{(m.share * 100).toFixed(1)}%</span>
-              <span className="num">{formatTokens(m.agg.input)}</span>
-              <span className="num">{formatTokens(m.agg.output)}</span>
+              <span className="num">{formatTokens(totalTokens(row.agg))}</span>
+              <span className="num">{(row.share * 100).toFixed(1)}%</span>
+              <span className="num">{formatTokens(row.agg.input)}</span>
+              <span className="num">{formatTokens(row.agg.output)}</span>
               <span className="num">
-                {m.agg.reasoning.present > 0 ? formatTokens(m.agg.reasoning.sum) : "—"}
+                {row.agg.reasoning.present > 0 ? formatTokens(row.agg.reasoning.sum) : "—"}
               </span>
               <span className="num">
-                {m.agg.cacheRead.present > 0 ? formatTokens(m.agg.cacheRead.sum) : "—"}
+                {row.agg.cacheRead.present > 0 ? formatTokens(row.agg.cacheRead.sum) : "—"}
               </span>
               <span className="num">
-                {cacheHitRate(m.agg) === null
+                {cacheHitRate(row.agg) === null
                   ? "—"
-                  : `${(cacheHitRate(m.agg)! * 100).toFixed(0)}% · ${formatFull(m.agg.requests)}`}
+                  : `${(cacheHitRate(row.agg)! * 100).toFixed(0)}% · ${formatFull(row.agg.requests)}`}
               </span>
               <span className="num" style={{ color: "var(--zup-blue-600)" }}>
                 {(() => {
-                  const c = costByModel.get(m.name);
+                  const c = costByModel.get(row.name);
                   return c?.priced ? `≈ ${formatCny(c.costCny)}` : "价格未知";
                 })()}
               </span>
@@ -113,9 +116,7 @@ function ModelDetailCard({ detail }: { detail: ModelDetailDto }) {
         <div className="panel-title">
           模型详情 · {detail.name}
           <span className="right">
-            <button className="model-chip" onClick={() => store.set({ modelDetail: null })}>
-              关闭
-            </button>
+            <FxCloseChip onClick={() => store.set({ modelDetail: null })} />
           </span>
         </div>
         <div className="zup-grid metrics-grid" style={{ marginBottom: 12 }}>

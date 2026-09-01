@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Button } from "open-glass-ui";
 import { motion } from "motion/react";
+import { FxButton, FxCloseChip } from "./fx";
 import { api } from "../lib/ipc";
 import { backdropVariants, dialogVariants } from "../lib/motion";
 import type { CostDetailDto, FxInfo } from "../lib/types";
@@ -75,14 +75,15 @@ export function CostDetailModal({
             {rangeLabel}
           </span>
           <span className="right">
-            <button className="model-chip" onClick={onClose}>
-              关闭
-            </button>
+            <FxCloseChip onClick={onClose} />
           </span>
         </div>
 
         {!detail ? (
-          <div className="empty-state">正在加载成本明细…</div>
+          <div className="empty-state">
+            <span className="fx-spinner" aria-hidden style={{ marginRight: 8, verticalAlign: -1 }} />
+            正在加载成本明细…
+          </div>
         ) : !detail.priced ? (
           <div className="empty-state">
             <div style={{ fontSize: 14, color: "var(--zup-text-2)" }}>价格未知</div>
@@ -90,9 +91,9 @@ export function CostDetailModal({
               该模型没有官方价格表条目,无法估算 API 花费。可在「设置 → API 价格表 → 价格未知」中手动覆盖单价。
             </div>
             <div style={{ marginTop: 14 }}>
-              <Button variant="quiet" onClick={onClose}>
+              <FxButton variant="quiet" size="small" onClick={onClose}>
                 知道了
-              </Button>
+              </FxButton>
             </div>
           </div>
         ) : (

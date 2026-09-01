@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GlassSystemProvider, Switch } from "open-glass-ui";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion/react";
 import { api, onEvent } from "./lib/ipc";
-import { pageVariants, softSpring } from "./lib/motion";
+import { pageVariants, popSpring, softSpring } from "./lib/motion";
 import { store, useStore } from "./lib/store";
 import type { RangeKey } from "./lib/types";
 import { RANGE_KEYS, RANGE_LABELS } from "./lib/types";
@@ -184,7 +184,8 @@ export function App() {
         <motion.button
           key={id}
           layout
-          whileTap={{ scale: 0.975 }}
+          whileHover={{ x: 2 }}
+          whileTap={{ scale: 0.965 }}
           transition={softSpring}
           className={`zup-nav-item ${page === id ? "active" : ""}`}
           onClick={() => {
@@ -201,9 +202,18 @@ export function App() {
               transition={softSpring}
             />
           )}
-          <span className="zup-nav-content" aria-hidden style={{ opacity: 0.7 }}>
+          {/* icon pops once when its item becomes the active page */}
+          <motion.span
+            key={page === id ? "on" : "off"}
+            className="zup-nav-content"
+            aria-hidden
+            style={{ opacity: 0.7 }}
+            initial={{ scale: 0.75 }}
+            animate={{ scale: 1 }}
+            transition={popSpring}
+          >
             {icon}
-          </span>
+          </motion.span>
           <span className="zup-nav-content">{label}</span>
         </motion.button>
       )),

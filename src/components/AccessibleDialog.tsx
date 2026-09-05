@@ -1,18 +1,23 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { Glass } from "open-glass-ui";
+import { createPortal } from "react-dom";
 import { backdropVariants, dialogVariants } from "../lib/motion";
+const MotionGlass = motion.create(Glass);
 
 interface AccessibleDialogProps {
   label: string;
   onClose: () => void;
   children: ReactNode;
   className?: string;
+  glass?: boolean;
 }
 
 /** A glass modal with keyboard dismissal, focus trapping, and focus restore. */
-export function AccessibleDialog({ label, onClose, children, className = "" }: AccessibleDialogProps) {
+export function AccessibleDialog({ label, onClose, children, className = "", glass = false }: AccessibleDialogProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
+  const Surface = glass ? MotionGlass : motion.div;
 
   useEffect(() => {
     restoreRef.current = document.activeElement as HTMLElement | null;
@@ -63,7 +68,7 @@ export function AccessibleDialog({ label, onClose, children, className = "" }: A
     }
   };
 
-  return (
+  const content = (
     <AnimatePresence>
       <motion.div
         className="overlay-backdrop"
@@ -75,9 +80,10 @@ export function AccessibleDialog({ label, onClose, children, className = "" }: A
           if (event.target === event.currentTarget) onClose();
         }}
       >
-        <motion.div
+        <Surface
+          {...(glass ? { material: "frosted" as const, renderer: "css" as const, interactive: false } : {})}
           ref={panelRef}
-          className={`panel overlay-card ${className}`.trim()}
+          className={`panel overlay-card ${glass ? "sample-glass" : ""} ${className}`.trim()}
           variants={dialogVariants}
           role="dialog"
           aria-modal="true"
@@ -86,8 +92,12 @@ export function AccessibleDialog({ label, onClose, children, className = "" }: A
           onKeyDown={trapFocus}
         >
           {children}
-        </motion.div>
+        </Surface>
       </motion.div>
     </AnimatePresence>
   );
+  // Backdrop-filter establishes a containing block for fixed descendants.
+  // Keep glass dialogs outside all glass cards so the overlay covers the window.
+  const host = glass ? document.querySelector(".zup-shell") : null;
+  return host ? createPortal(content, host) : content;
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { GlassSystemProvider, OrganicFilterDefinition, Switch } from "open-glass-ui";
+import { Glass, GlassSystemProvider, OrganicFilterDefinition, Switch } from "open-glass-ui";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion/react";
 import { api, onEvent } from "./lib/ipc";
 import { NavIcon } from "./components/NavIcon";
@@ -306,6 +306,7 @@ export function App() {
     [page],
   );
 
+  const NavigationSurface = page === "dashboard" ? Glass : "nav";
   return (
     <MotionConfig reducedMotion="user">
       <GlassSystemProvider
@@ -322,7 +323,7 @@ export function App() {
           seed={4}
           animate={false}
         />
-        <div className="zup-shell zup-frame">
+        <div className={`zup-shell zup-frame${page === "dashboard" ? " frosted-sample" : ""}`}>
           <div className="liquid-ambient" aria-hidden>
             <span className="liquid-ambient__orb liquid-ambient__orb--blue" />
             <span className="liquid-ambient__orb liquid-ambient__orb--cyan" />
@@ -332,7 +333,8 @@ export function App() {
           <WindowFrame />
           <TitleBar title="ZCode Usage Panel" onRefresh={refreshAll} />
           <div className="zup-body">
-            <nav className="zup-nav">
+            <NavigationSurface className="zup-nav"
+              {...(page === "dashboard" ? { as: "nav" as const, material: "regular" as const, renderer: "css" as const, interactive: false } : {})}>
               <div className="nav-section-label">工作空间</div>
               <LayoutGroup id="primary-navigation">{nav}</LayoutGroup>
               <div className="footnote">
@@ -390,7 +392,7 @@ export function App() {
                   />
                 </div>
               </div>
-            </nav>
+            </NavigationSurface>
             <main className="zup-content">
               <AnimatePresence mode="wait" initial={false}>
                 <motion.div

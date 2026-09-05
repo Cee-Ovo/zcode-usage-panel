@@ -1,11 +1,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { Glass } from "open-glass-ui";
+import { AccessibleDialog } from "./AccessibleDialog";
 import { api } from "../lib/ipc";
 import { FxChip, FxCloseChip, FxSpinOnClick } from "./fx";
 import {
-  backdropVariants,
   cardVariants,
-  dialogVariants,
   progressSpring,
   softSpring,
   staggerContainer,
@@ -31,6 +31,7 @@ import {
   formatRelative,
   formatTokens,
 } from "../lib/format";
+
 
 /**
  * 服务额度:unified quota cards for ZCode / Codex / Antigravity / Volcengine.
@@ -60,7 +61,7 @@ export const QuotaSection = memo(function QuotaSection() {
 
   if (providers.length === 0) {
     return (
-      <div className="panel quota-section">
+      <Glass className="panel quota-section sample-glass" renderer="css" material="regular" interactive={false}>
         <div className="panel-title quota-heading">
           服务额度
           <span className="right quota-heading-actions">
@@ -68,12 +69,12 @@ export const QuotaSection = memo(function QuotaSection() {
           </span>
         </div>
         <div className="empty-state">正在初始化 Provider…</div>
-      </div>
+      </Glass>
     );
   }
 
   return (
-    <div className="panel quota-section">
+    <Glass className="panel quota-section sample-glass" renderer="css" material="regular" interactive={false}>
       <div className="panel-title quota-heading">
         <span className="quota-heading-title">服务额度</span>
         <span className="right quota-heading-actions">
@@ -102,7 +103,7 @@ export const QuotaSection = memo(function QuotaSection() {
           />
         )}
       </AnimatePresence>
-    </div>
+    </Glass>
   );
 });
 
@@ -326,31 +327,11 @@ export function ProviderDetailModal({ provider, onClose }: { provider: string; o
     };
   }, [provider, windowKey, range, snap?.windows.length, snap?.updatedAtMs]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   if (!snap) return null;
   const label = PROVIDER_LABELS[provider] ?? provider;
 
   return (
-    <motion.div
-      className="overlay-backdrop"
-      variants={backdropVariants}
-      initial="initial"
-      animate="enter"
-      exit="exit"
-      onClick={onClose}
-    >
-      <motion.div
-        className="panel overlay-card quota-detail"
-        variants={dialogVariants}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <AccessibleDialog glass label={`${label} · 额度详情`} onClose={onClose} className="quota-detail">
         <div className="panel-title">
           <span>
             {label} · 额度详情
@@ -449,8 +430,7 @@ export function ProviderDetailModal({ provider, onClose }: { provider: string; o
             <DailyConsumptionBars data={consumption} />
           </>
         )}
-      </motion.div>
-    </motion.div>
+    </AccessibleDialog>
   );
 }
 

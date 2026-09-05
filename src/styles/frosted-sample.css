@@ -1,0 +1,69 @@
+/* Dashboard sample only. Material/background alpha, blur, border colour and
+   shadows are supplied by OpenGlass UI 0.3.0 Glass regular/frosted presets.
+   No custom optical shader, blur recipe, noise or pointer lighting here.
+   Reference: https://github.com/moekoelueker/open-glass-ui (MIT).
+   These rules provide a static backdrop, layout and readable app typography. */
+:root .zup-shell.frosted-sample {
+  background:
+    radial-gradient(ellipse at 95% 4%, #b4cde6 0, transparent 49%),
+    radial-gradient(ellipse at 8% 83%, #bab9db 0, transparent 48%),
+    linear-gradient(125deg, #e3e8de 4%, #d9e3ea 40%, #c6d0e5 69%, #e3d9ce);
+  --zup-text-1: #202936;
+  --zup-text-2: #424e60;
+  --zup-text-3: #505d6e;
+  --refine-line: rgb(48 66 86 / 14%);
+  --refine-muted: rgb(255 255 255 / 25%);
+}
+:root[data-theme="dark"] .zup-shell.frosted-sample {
+  background:
+    radial-gradient(ellipse at 92% 6%, #344b62 0, transparent 52%),
+    radial-gradient(ellipse at 9% 86%, #454159 0, transparent 52%),
+    linear-gradient(125deg, #202b31, #233342 45%, #30394c 75%, #302f39);
+  --zup-text-1: #f0f2f5;
+  --zup-text-2: #d4dae3;
+  --zup-text-3: #b9c4d2;
+  --refine-line: rgb(223 231 242 / 14%);
+  --refine-muted: rgb(255 255 255 / 5%);
+}
+.frosted-sample .zup-titlebar { background: transparent; }
+.frosted-sample .zup-content { background: transparent; padding: 26px 30px 36px; }
+.frosted-sample .zup-nav { border: 0; border-right: 1px solid; }
+.frosted-sample .motion-page { transform: none !important; }
+.frosted-sample .sample-glass { border-style: solid; border-width: 1px; }
+.frosted-sample .page-heading { padding: 0 2px 4px; }
+.frosted-sample .page-heading h1 { font-size: 26px; }
+.frosted-sample .page-heading p { font-size: 12px; color: var(--zup-text-2); }
+.frosted-sample .page-eyebrow { color: var(--zup-text-2); letter-spacing: .13em; }
+.frosted-sample .source-label { background: transparent; }
+.sample-review { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; font-size: 11px; color: var(--zup-text-2); }
+.sample-review a { color: inherit; text-underline-offset: 3px; }
+.sample-theme-controls { display: flex; gap: 6px; margin-left: auto; }
+.sample-theme-controls .ogui-button { padding: 5px 10px; font-size: 11px; }
+.frosted-sample .dashboard-toolbar { padding-block: 5px; gap: 12px; }
+.frosted-sample .dashboard-toolbar .ogui-segments { font-size: 12px; flex-wrap: wrap; min-width: 0; margin: 0; }
+.frosted-sample .codex-range-tabs { flex-wrap: wrap; min-width: 0; font-size: 11px; }
+.frosted-sample .dashboard-toolbar .fx-press { background: transparent; }
+.frosted-sample .dashboard-metrics { gap: 13px; }
+.frosted-sample .dashboard-metrics > :is(.metric-card--primary, .metric-card--cost) { padding: 24px; }
+.frosted-sample .dashboard-metrics .label { font-size: 12px; color: var(--zup-text-2); }
+.frosted-sample .dashboard-metrics .sub { font-size: 11px; color: var(--zup-text-3); }
+.frosted-sample .metric-card--primary .value { color: var(--zup-text-1); }
+.frosted-sample .codex-panel .codex-stat { background: transparent; }
+:root .frosted-sample .quota-card { background: transparent; box-shadow: none; }
+.frosted-sample .overlay-backdrop { backdrop-filter: none; -webkit-backdrop-filter: none; }
+.frosted-sample .overlay-card { max-height: 85vh; overflow-y: auto; }
+@media (max-width: 1000px) {
+  .frosted-sample .zup-content { padding: 20px; }
+}
+@media (max-width: 640px) {
+  .frosted-sample .zup-content { padding: 16px 12px 24px; }
+  .frosted-sample .zup-nav { border-right: 0; border-bottom: 1px solid; }
+  .frosted-sample .dashboard-metrics > :is(.metric-card--primary, .metric-card--cost) { padding: 16px; }
+  .sample-theme-controls { margin-left: 0; }
+}
+@media (prefers-reduced-transparency: reduce), (forced-colors: active) {
+  :root .zup-shell.frosted-sample { background: Canvas; }
+}
+@media (forced-colors: active) {
+  :root .zup-shell.frosted-sample { --zup-text-1: CanvasText; --zup-text-2: CanvasText; --zup-text-3: CanvasText; }
+}

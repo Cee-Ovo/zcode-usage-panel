@@ -7,6 +7,7 @@ import "./styles/liquid-surfaces.css";
 import { App } from "./App";
 import "./styles/refinement.css";
 import "./styles/provider-refinement.css";
+import "./styles/frosted-sample.css";
 import { store, type AppState } from "./lib/store";
 
 // Dev-server convenience: no Tauri IPC in a plain browser, so seed the store

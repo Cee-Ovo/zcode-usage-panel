@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { Glass, SegmentedControl } from "open-glass-ui";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { InfoDot } from "./MetricCard";
 import { FxChip } from "./fx";
-import { LiquidSegmentedControl } from "./LiquidSegmentedControl";
 import { ProviderDetailModal } from "./QuotaSection";
 import { useStore } from "../lib/store";
 import type { LocalUsage, LocalUsageRange, ModelUsageRow } from "../lib/types";
@@ -29,6 +29,8 @@ const CODEX_EXPLAIN =
   "Codex Token = 本地 Codex 客户端 session 日志中提供的 total_tokens 原值;Cached / Cache Write 作为分项展示,不会重复加到总量中。\n" +
   "它与「ZCode 总 Token」分开统计、互不计入;与服务额度区的 Codex 官方套餐额度(5 小时/周 rate_limits)也是两个独立指标。\n" +
   "本地 Token 统计 ≠ 官方剩余额度 ≠ 实际 Billing。";
+
+const MotionGlass = motion.create(Glass);
 
 const CODEX_RANGE_KEYS = ["today", "60m", "24h", "7d", "30d", "all"] as const;
 type CodexRangeKey = (typeof CODEX_RANGE_KEYS)[number];
@@ -69,20 +71,14 @@ export function CodexUsagePanel() {
   const selected = usage ? selectedUsageRange(usage, rangeKey) : null;
 
   return (
-    <motion.div
-      className="codex-panel"
+    <MotionGlass
+      className="codex-panel sample-glass"
+      renderer="css"
+      material="regular"
+      interactive={false}
       variants={cardVariants}
       whileHover={{ y: -1 }}
       transition={softSpring}
-      onPointerMove={(event) => {
-        const rect = event.currentTarget.getBoundingClientRect();
-        event.currentTarget.style.setProperty("--liquid-x", `${event.clientX - rect.left}px`);
-        event.currentTarget.style.setProperty("--liquid-y", `${event.clientY - rect.top}px`);
-      }}
-      onPointerLeave={(event) => {
-        event.currentTarget.style.setProperty("--liquid-x", "32%");
-        event.currentTarget.style.setProperty("--liquid-y", "0px");
-      }}
     >
       <div className="panel-title codex-heading">
         <span className="codex-heading-title">Codex 本地 Token 用量</span>
@@ -113,7 +109,7 @@ export function CodexUsagePanel() {
       ) : (
         <>
           <div className="codex-range-control">
-            <LiquidSegmentedControl
+            <SegmentedControl
               aria-label="Codex 本地 Token 时间范围"
               className="codex-range-tabs"
               value={rangeKey}
@@ -222,7 +218,7 @@ export function CodexUsagePanel() {
           <ProviderDetailModal key="codex-detail" provider="codex" onClose={() => setDetail(false)} />
         )}
       </AnimatePresence>
-    </motion.div>
+    </MotionGlass>
   );
 }
 

@@ -17,12 +17,14 @@ export function CostDetailModal({
   fx,
   priceUpdatedAt,
   onClose,
+  glass = false,
 }: {
   model: string;
   rangeKey: string;
   fx: FxInfo | null | undefined;
   priceUpdatedAt: string | null | undefined;
   onClose: () => void;
+  glass?: boolean;
 }) {
   const [detail, setDetail] = useState<CostDetailDto | null>(null);
   const [error, setError] = useState(false);
@@ -46,7 +48,7 @@ export function CostDetailModal({
   const rangeLabel = RANGE_LABELS[rangeKey as keyof typeof RANGE_LABELS] ?? rangeKey;
 
   return (
-    <AccessibleDialog label={`成本明细 · ${model}`} onClose={onClose} className="cost-modal">
+    <AccessibleDialog glass={glass} label={`成本明细 · ${model}`} onClose={onClose} className="cost-modal">
         <div className="panel-title">
           成本明细 · {model}
           <span className="muted" style={{ fontWeight: 500 }}>

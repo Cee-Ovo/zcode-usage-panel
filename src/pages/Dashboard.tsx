@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Glass, SegmentedControl, Button } from "open-glass-ui";
 import { AnimatePresence, motion } from "motion/react";
 import { AnimatedNumber } from "../components/AnimatedNumber";
 import { CodexUsagePanel } from "../components/CodexUsagePanel";
@@ -7,7 +8,6 @@ import { MetricCard, InfoDot } from "../components/MetricCard";
 import { QuotaSection } from "../components/QuotaSection";
 import { TrendChart } from "../components/TrendChart";
 import { FxButton, useAction } from "../components/fx";
-import { LiquidSegmentedControl } from "../components/LiquidSegmentedControl";
 import { api } from "../lib/ipc";
 import { listItemVariants, rowGestures, softSpring, staggerContainer } from "../lib/motion";
 import { store, useStore } from "../lib/store";
@@ -75,9 +75,19 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
         </div>
         <span className="source-label"><span aria-hidden="true">▤</span> 本地数据面板</span>
       </header>
+      {import.meta.env.DEV && !("__TAURI_INTERNALS__" in window) && <div className="sample-review" aria-label="磨玻璃样板预览">
+        <span>材质样板 · 演示数据</span>
+        <a href="https://github.com/moekoelueker/open-glass-ui" target="_blank" rel="noreferrer">OpenGlass UI 0.3.0 ↗</a>
+        <span className="sample-theme-controls">
+          {(["light", "dark"] as const).map((theme) => <Button key={theme} onClick={() => {
+            const settings = store.get().settings;
+            if (settings) store.set({ settings: { ...settings, theme } });
+          }}>{theme === "light" ? "浅色样板" : "深色样板"}</Button>)}
+        </span>
+      </div>}
       {/* range selector */}
       <div className="dashboard-toolbar">
-        <LiquidSegmentedControl
+        <SegmentedControl
           aria-label="时间范围"
           value={rangeKey}
           onValueChange={(v) => onRangeChange(v)}
@@ -124,6 +134,7 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
         animate="enter"
       >
         <MetricCard
+          glass
           className="metric-card--primary"
           label="ZCode 总 Token"
           value={<AnimatedNumber value={totalTokens(agg)} format={formatTokens} />}
@@ -131,6 +142,7 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
           hint={TOTAL_HINT}
         />
         <MetricCard
+          glass
           className="metric-card--cost"
           label="API 等价花费"
           value={
@@ -149,14 +161,17 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
         />
         {!compact && <>
         <MetricCard
+          glass
           label="Input Token"
           value={<AnimatedNumber value={agg.input} format={formatTokens} />}
         />
         <MetricCard
+          glass
           label="Output Token"
           value={<AnimatedNumber value={agg.output} format={formatTokens} />}
         />
         <MetricCard
+          glass
           label="Reasoning Token"
           value={
             agg.reasoning.present > 0 ? (
@@ -174,6 +189,7 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
           hint="数据源未提供 reasoning 字段的记录不会计入,也不会被推算。"
         />
         <MetricCard
+          glass
           label="Cache Token"
           value={
             agg.cacheRead.present > 0 ? (
@@ -194,16 +210,19 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
         />
         </>}
         <MetricCard
+          glass
           label="请求次数"
           value={<AnimatedNumber value={agg.requests} format={formatFull} />}
         />
         <MetricCard
+          glass
           label="Cache Hit Rate"
           value={hit === null ? "unavailable" : formatPercent(hit)}
           unavailable={hit === null}
           hint={HIT_HINT}
         />
         <MetricCard
+          glass
           className="metric-card--model"
           label="活跃模型"
           value={
@@ -224,7 +243,7 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
       <QuotaSection />
 
       {/* top models */}
-      <div className="panel">
+      <Glass className="panel sample-glass" material="regular" renderer="css">
         <div className="panel-title">
           模型排行
           <span className="right muted">
@@ -259,11 +278,11 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
             />
           ))}
         </AnimatePresence>
-      </div>
+      </Glass>
 
       {/* recent local alerts */}
       {alerts.length > 0 && (
-        <div className="panel">
+        <Glass className="panel sample-glass" material="regular" renderer="css">
           <div className="panel-title">异常提醒(本地)</div>
           <AnimatePresence initial={false}>
             {alerts.slice(0, 3).map((a) => (
@@ -286,11 +305,11 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
               </motion.div>
             ))}
           </AnimatePresence>
-        </div>
+        </Glass>
       )}
 
       {/* live session strip */}
-      <div className="panel">
+      <Glass className="panel sample-glass" material="regular" renderer="css">
         <div className="panel-title">当前 Session</div>
         {dash.activeSession ? (
           <div className="kv">
@@ -324,10 +343,10 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
         ) : (
           <div className="muted">暂无活跃 Session(ZCode 未运行时显示最后一次统计)</div>
         )}
-      </div>
+      </Glass>
 
       {/* trend */}
-      <div className="panel">
+      <Glass className="panel sample-glass" material="regular" renderer="css">
         <div className="panel-title">
           实时趋势 · {RANGE_LABELS[(trend?.rangeKey ?? rangeKey) as keyof typeof RANGE_LABELS] ?? rangeKey}
           <span className="right">
@@ -335,11 +354,12 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
           </span>
         </div>
         <TrendChart trend={trend} visibleModels={visibleModels} />
-      </div>
+      </Glass>
 
       <AnimatePresence>
         {costModalModel && (
           <CostDetailModal
+            glass
             key={costModalModel}
             model={costModalModel}
             rangeKey={rangeKey}

@@ -18,12 +18,20 @@ import type {
   QuotaAlertEvent,
   SessionDetailDto,
   SessionSummary,
+  SessionsPageDto,
+  SessionSort,
+  HistoryHealth,
   Settings,
   TrendDto,
   UsageUpdateEvent,
+  UsageViewDto,
 } from "./types";
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (import.meta.env.DEV && !("__TAURI_INTERNALS__" in window)) {
+    const { mockInvoke } = await import("./devMock");
+    return mockInvoke<T>(cmd, args);
+  }
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<T>(cmd, args);
 }
@@ -31,8 +39,12 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
 export const api = {
   bootstrap: () => invoke<BootstrapDto>("get_bootstrap"),
   dashboard: (rangeKey: string) => invoke<DashboardDto>("get_dashboard", { rangeKey }),
+  usageView: (rangeKey: string, includeTrend = true) =>
+    invoke<UsageViewDto>("get_usage_view", { rangeKey, includeTrend }),
   trend: (rangeKey: string) => invoke<TrendDto>("get_trend", { rangeKey }),
   sessions: () => invoke<SessionSummary[]>("get_sessions"),
+  sessionsPage: (query = "", sort: SessionSort = "recent", page = 0, pageSize = 50) =>
+    invoke<SessionsPageDto>("get_sessions_page", { query, sort, page, pageSize }),
   sessionDetail: (sessionId: string) =>
     invoke<SessionDetailDto | null>("get_session_detail", { sessionId }),
   modelDetail: (name: string) => invoke<ModelDetailDto | null>("get_model_detail", { name }),
@@ -48,6 +60,7 @@ export const api = {
   dockInteract: (active: boolean) => invoke<void>("dock_interact", { active }),
   popupClose: () => invoke<void>("popup_close"),
   quitApp: () => invoke<void>("quit_app"),
+  historyHealth: () => invoke<HistoryHealth>("history_health"),
 
   // ---- official-API cost estimation ----
   costSummary: (rangeKey: string) =>
@@ -85,6 +98,7 @@ export async function onEvent<T>(
   name: string,
   handler: (payload: T) => void,
 ): Promise<() => void> {
+  if (import.meta.env.DEV && !("__TAURI_INTERNALS__" in window)) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
   const un = await listen<T>(name, (e) => handler(e.payload));
   return un;

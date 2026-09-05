@@ -101,6 +101,62 @@ pub struct SessionDetailDto {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SessionsPageDto {
+    pub items: Vec<SessionSummary>,
+    pub total: usize,
+    pub page: usize,
+    pub page_size: usize,
+}
+
+const DEFAULT_SESSIONS_PAGE_SIZE: usize = 50;
+const MAX_SESSIONS_PAGE_SIZE: usize = 100;
+
+/// Filter and page session summaries after the complete summary list has been
+/// materialized. Keeping this pure makes the full-history and boundary
+/// behavior independently testable without constructing Tauri state.
+pub fn query_sessions_page(
+    sessions: &[SessionSummary],
+    query: &str,
+    sort: &str,
+    page: usize,
+    page_size: usize,
+) -> SessionsPageDto {
+    let needle = query.trim().to_lowercase();
+    let mut matches: Vec<&SessionSummary> = sessions
+        .iter()
+        .filter(|s| {
+            needle.is_empty()
+                || s.id.to_lowercase().contains(&needle)
+                || s.project.as_deref().unwrap_or("").to_lowercase().contains(&needle)
+                || s.models.iter().any(|m| m.to_lowercase().contains(&needle))
+        })
+        .collect();
+
+    matches.sort_by(|a, b| {
+        let primary = if sort == "tokens" {
+            b.agg.total_tokens().cmp(&a.agg.total_tokens())
+        } else {
+            b.agg.last_ts_ms.cmp(&a.agg.last_ts_ms)
+        };
+        primary.then_with(|| a.id.cmp(&b.id))
+    });
+
+    let total = matches.len();
+    let page_size = page_size.clamp(1, MAX_SESSIONS_PAGE_SIZE);
+    let start = page.saturating_mul(page_size);
+    let items = if start >= total {
+        Vec::new()
+    } else {
+        matches[start..(start + page_size).min(total)]
+            .iter()
+            .map(|s| (*s).clone())
+            .collect()
+    };
+    SessionsPageDto { items, total, page, page_size }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ModelDetailDto {
     pub name: String,
     pub today: Agg,
@@ -156,15 +212,10 @@ pub struct BootstrapDto {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn active_session_of(inner: &mut crate::engine::EngineInner) -> Option<ActiveSession> {
+fn active_session_of(inner: &crate::engine::EngineInner) -> Option<ActiveSession> {
     let now = now_ms();
     let id = inner.store.active_session_id()?;
-    let summary = inner
-        .store
-        .session_summaries()
-        .iter()
-        .find(|s| s.id == id)?
-        .clone();
+    let summary = inner.store.session_summary(&id)?;
     let recent = inner.store.session_records(&id, now - 30 * 60_000);
     let last_5m: u64 = recent
         .iter()
@@ -231,9 +282,12 @@ pub fn get_bootstrap(app: AppHandle, state: State<'_, SharedAppState>) -> Bootst
 
 #[tauri::command]
 pub fn get_dashboard(range_key: String, state: State<'_, SharedAppState>) -> DashboardDto {
+    let inner = state.engine.inner.lock().unwrap();
+    dashboard_from_inner(&range_key, &inner, now_ms())
+}
+
+fn dashboard_from_inner(range_key: &str, inner: &crate::engine::EngineInner, now: i64) -> DashboardDto {
     let range = TrendRange::from_key(&range_key).unwrap_or(TrendRange::TodayHourly);
-    let now = now_ms();
-    let mut inner = state.engine.inner.lock().unwrap();
 
     let (from, to, _) = resolve_span(range, now, inner.store.history_start_ms());
     let records = inner.store.range(from, to);
@@ -245,7 +299,7 @@ pub fn get_dashboard(range_key: String, state: State<'_, SharedAppState>) -> Das
     let active = if inner.store.is_empty() {
         None
     } else {
-        active_session_of(&mut *inner)
+        active_session_of(&*inner)
     };    let restored = inner.store.is_empty() && inner.boot.is_some();
 
     let (agg, models) = if inner.store.is_empty() {
@@ -287,9 +341,12 @@ fn boot_rows(boot: &crate::engine::BootSnapshot) -> Vec<ModelRow> {
 
 #[tauri::command]
 pub fn get_trend(range_key: String, state: State<'_, SharedAppState>) -> TrendDto {
-    let range = TrendRange::from_key(&range_key).unwrap_or(TrendRange::TodayHourly);
-    let now = now_ms();
     let inner = state.engine.inner.lock().unwrap();
+    trend_from_inner(&range_key, &inner, now_ms())
+}
+
+fn trend_from_inner(range_key: &str, inner: &crate::engine::EngineInner, now: i64) -> TrendDto {
+    let range = TrendRange::from_key(&range_key).unwrap_or(TrendRange::TodayHourly);
     let (from, to, n) = resolve_span(range, now, inner.store.history_start_ms());
     let restored = inner.store.is_empty() && inner.boot.is_some();
     let buckets = if inner.store.is_empty() {
@@ -318,15 +375,61 @@ pub fn get_sessions(state: State<'_, SharedAppState>) -> Vec<SessionSummary> {
     inner.store.session_summaries().iter().take(500).cloned().collect()
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageViewDto {
+    pub dash: DashboardDto,
+    pub trend: Option<TrendDto>,
+    pub cost_summary: CostSummaryDto,
+    pub revision: u64,
+}
+
+/// One IPC response, one ingestion revision, one time boundary. Models can
+/// omit the trend entirely. Legacy commands remain for popup/other callers.
+#[tauri::command]
+pub fn get_usage_view(range_key: String, include_trend: bool, state: State<'_, SharedAppState>) -> UsageViewDto {
+    let inner = state.engine.inner.lock().unwrap();
+    usage_view_from_inner(&range_key, include_trend, &inner, &state.pricing, now_ms())
+}
+
+fn usage_view_from_inner(range_key: &str, include_trend: bool, inner: &crate::engine::EngineInner, pricing: &PricingManager, now: i64) -> UsageViewDto {
+    let dash = dashboard_from_inner(range_key, inner, now);
+    let cost_summary = pricing.cost_summary(&dash.range_key, inner.store.range(dash.from_ms, dash.to_ms));
+    UsageViewDto {
+        trend: include_trend.then(|| trend_from_inner(range_key, inner, now)),
+        dash,
+        cost_summary,
+        revision: inner.store.total_ingested,
+    }
+}
+
+#[tauri::command]
+pub fn get_sessions_page(
+    query: String,
+    sort: String,
+    page: usize,
+    page_size: usize,
+    state: State<'_, SharedAppState>,
+) -> SessionsPageDto {
+    let mut inner = state.engine.inner.lock().unwrap();
+    let sessions: Vec<SessionSummary> = if inner.store.is_empty() {
+        inner.boot.as_ref().map(|boot| boot.sessions.clone()).unwrap_or_default()
+    } else {
+        inner.store.session_summaries().to_vec()
+    };
+    query_sessions_page(
+        &sessions,
+        &query,
+        &sort,
+        page,
+        if page_size == 0 { DEFAULT_SESSIONS_PAGE_SIZE } else { page_size },
+    )
+}
+
 #[tauri::command]
 pub fn get_session_detail(session_id: String, state: State<'_, SharedAppState>) -> Option<SessionDetailDto> {
-    let mut inner = state.engine.inner.lock().unwrap();
-    let summary = inner
-        .store
-        .session_summaries()
-        .iter()
-        .find(|s| s.id == session_id)?
-        .clone();
+    let inner = state.engine.inner.lock().unwrap();
+    let summary = inner.store.session_summary(&session_id)?;
     let from = summary.agg.first_ts_ms?;
     let to = summary.agg.last_ts_ms?;
     let records = inner.store.range(from, to);
@@ -791,6 +894,11 @@ pub fn get_active_models(state: State<'_, SharedAppState>) -> Vec<String> {
 }
 
 #[tauri::command]
+pub fn history_health(state: State<'_, SharedAppState>) -> crate::providers::history::HistoryHealth {
+    state.hub.history_health()
+}
+
+#[tauri::command]
 pub async fn export_data(
     app: AppHandle,
     state: State<'_, SharedAppState>,
@@ -825,4 +933,75 @@ pub async fn export_data(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod sessions_page_tests {
+    use super::*;
+
+    #[test]
+    fn usage_view_shares_range_revision_and_optional_trend() {
+        let (engine, _rx) = crate::engine::Engine::new();
+        let pricing = PricingManager::new(None);
+        let mut inner = engine.inner.lock().unwrap();
+        inner.store.ingest(vec![UsageRecord {
+            ts_ms: 1_756_300_000_000,
+            model: "unpriced-test-model".into(),
+            session_id: Some("s".into()), project: None,
+            input_tokens: 100, output_tokens: 20, reasoning_tokens: None,
+            cache_read_tokens: None, cache_write_tokens: None, source_file: "synthetic".into(),
+        }]);
+        let view = usage_view_from_inner("all", true, &inner, &pricing, 1_756_300_060_000);
+        assert_eq!(view.revision, 1);
+        assert_eq!(view.dash.agg.requests, 1);
+        let trend = view.trend.unwrap();
+        assert_eq!(view.dash.from_ms, trend.from_ms);
+        assert_eq!(view.dash.to_ms, trend.to_ms);
+        assert_eq!(view.dash.range_key, trend.range_key);
+        assert_eq!(trend.buckets.iter().map(|b| b.agg.requests).sum::<u64>(), 1);
+        assert!(usage_view_from_inner("all", false, &inner, &pricing, 1_756_300_060_000).trend.is_none());
+    }
+
+    fn summary(id: &str, project: Option<&str>, model: &str, last: i64, tokens: u64) -> SessionSummary {
+        let mut agg = Agg::default();
+        agg.requests = 1;
+        agg.input = tokens;
+        agg.last_ts_ms = Some(last);
+        agg.first_ts_ms = Some(last);
+        SessionSummary {
+            id: id.into(),
+            project: project.map(str::to_owned),
+            models: vec![model.into()],
+            agg,
+        }
+    }
+
+    #[test]
+    fn searches_complete_history_before_paging() {
+        let mut all: Vec<_> = (0..600)
+            .map(|i| summary(&format!("session-{i:04}"), Some("older-project"), "model-a", i, i as u64))
+            .collect();
+        all[7].project = Some("historic-project".into());
+        all[7].models = vec!["historic-model".into()];
+
+        let result = query_sessions_page(&all, "historic-model", "recent", 0, 100);
+        assert_eq!(result.total, 1);
+        assert_eq!(result.items[0].id, "session-0007");
+    }
+
+    #[test]
+    fn sort_and_pagination_boundaries_are_stable() {
+        let all = vec![
+            summary("b", None, "m", 10, 5),
+            summary("a", None, "m", 10, 5),
+            summary("c", None, "m", 9, 20),
+        ];
+        let recent = query_sessions_page(&all, "", "recent", 0, 2);
+        assert_eq!(recent.items.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), vec!["a", "b"]);
+        let tokens = query_sessions_page(&all, "", "tokens", 1, 2);
+        assert_eq!(tokens.total, 3);
+        assert_eq!(tokens.items.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), vec!["b"]);
+        assert!(query_sessions_page(&all, "", "recent", 2, 2).items.is_empty());
+        assert_eq!(query_sessions_page(&all, "", "recent", 0, 999).page_size, 100);
+    }
 }

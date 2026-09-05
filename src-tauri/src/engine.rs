@@ -273,7 +273,6 @@ impl Engine {
         let mut busy = false;
         let mut changed = false;
         let mut new_alerts: Vec<AlertEvent> = Vec::new();
-        let mut emit_now = false;
         let mut payload: Option<UsageUpdateEvent> = None;
 
         {
@@ -330,6 +329,10 @@ impl Engine {
                 let Some(state) = inner.jsonl.get_mut(&path) else { continue };
                 match jsonl::read_new(state) {
                     Ok(recs) => {
+                        busy |= state.has_backlog;
+                        if let Some(error) = &state.last_error {
+                            errors.push(error.clone());
+                        }
                         if !recs.is_empty() {
                             changed = true;
                         }
@@ -406,7 +409,7 @@ impl Engine {
             }
 
             // Emit "usage-update" at most ~2×/s.
-            emit_now = changed
+            let emit_now = changed
                 || inner
                     .last_emit
                     .map(|t| t.elapsed() > Duration::from_millis(500))

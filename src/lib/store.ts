@@ -16,9 +16,16 @@ import type {
   TrendDto,
   UsageUpdateEvent,
 } from "./types";
+import type { QueryCoordinatorState } from "./queryCoordinator";
+
+export type RefreshState = Pick<
+  QueryCoordinatorState<"dashboard" | "models">,
+  "loading" | "pending" | "error" | "lastSuccessMs" | "lastSuccessRequest" | "request"
+>;
 
 export interface AppState {
   ready: boolean;
+  initializationError: string | null;
   version: string;
   settings: Settings | null;
   page: "dashboard" | "sessions" | "models" | "settings";
@@ -35,12 +42,14 @@ export interface AppState {
   diagnosis: DiagnoseDto | null;
   providers: ProviderSnapshot[];
   quotaAlerts: QuotaAlertEvent[];
+  refresh: RefreshState;
 }
 
 type Listener = () => void;
 
 const initial: AppState = {
   ready: false,
+  initializationError: null,
   version: "",
   settings: null,
   page: "dashboard",
@@ -57,6 +66,14 @@ const initial: AppState = {
   diagnosis: null,
   providers: [],
   quotaAlerts: [],
+  refresh: {
+    loading: false,
+    pending: false,
+    error: null,
+    lastSuccessMs: null,
+    lastSuccessRequest: null,
+    request: null,
+  },
 };
 
 let state: AppState = initial;

@@ -21,6 +21,7 @@ pub struct UsageStore {
     records: Vec<UsageRecord>,
     sessions: HashMap<String, SessionAcc>,
     sessions_cache: Option<Vec<SessionSummary>>,
+    active_session: Option<(i64, String)>,
     pub total_ingested: u64,
     pub last_record_ms: Option<i64>,
     /// Set while the store is served from the persisted boot snapshot
@@ -79,6 +80,9 @@ impl UsageStore {
 
     /// Records in `[from_ms, to_ms]` via binary search.
     pub fn range(&self, from_ms: i64, to_ms: i64) -> &[UsageRecord] {
+        if from_ms > to_ms {
+            return &[];
+        }
         let start = self.records.partition_point(|r| r.ts_ms < from_ms);
         let end = self.records.partition_point(|r| r.ts_ms <= to_ms);
         &self.records[start..end]
@@ -100,15 +104,26 @@ impl UsageStore {
                     agg: acc.agg.clone(),
                 })
                 .collect();
-            list.sort_by(|a, b| b.agg.last_ts_ms.cmp(&a.agg.last_ts_ms));
+            list.sort_by(|a, b| b.agg.last_ts_ms.cmp(&a.agg.last_ts_ms).then_with(|| a.id.cmp(&b.id)));
             self.sessions_cache = Some(list);
         }
         self.sessions_cache.as_deref().unwrap()
     }
 
     /// The most recently active session id, if any.
-    pub fn active_session_id(&mut self) -> Option<String> {
-        self.session_summaries().first().map(|s| s.id.clone())
+    pub fn active_session_id(&self) -> Option<String> {
+        self.active_session.as_ref().map(|(_, id)| id.clone())
+    }
+
+    /// Direct lookup avoids rebuilding/sorting the entire sessions list for
+    /// every live dashboard refresh or single-session detail request.
+    pub fn session_summary(&self, id: &str) -> Option<SessionSummary> {
+        self.sessions.get(id).map(|acc| SessionSummary {
+            id: id.to_string(),
+            project: acc.project.clone(),
+            models: acc.models.clone(),
+            agg: acc.agg.clone(),
+        })
     }
 
     /// Usage records of one session within a time window (used for the
@@ -132,6 +147,12 @@ impl UsageStore {
 
     pub(crate) fn ingest_into_sessions(&mut self, rec: &UsageRecord) {
         if let Some(sid) = &rec.session_id {
+            let replace = self.active_session.as_ref().map_or(true, |(ts, id)| {
+                rec.ts_ms > *ts || (rec.ts_ms == *ts && sid < id)
+            });
+            if replace {
+                self.active_session = Some((rec.ts_ms, sid.clone()));
+            }
             let acc = self.sessions.entry(sid.clone()).or_default();
             if acc.project.is_none() {
                 acc.project = rec.project.clone();
@@ -179,5 +200,27 @@ mod tests {
         st.ingest(vec![rec(5000, "m", "s"), rec(6000, "m", "s")]);
         st.ingest(vec![rec(1000, "m", "s")]);
         assert_eq!(st.all()[0].ts_ms, 1000);
+    }
+
+    #[test]
+    fn direct_session_lookup_matches_sorted_list_without_building_cache() {
+        let mut st = UsageStore::new();
+        st.ingest(vec![rec(5000, "m", "z"), rec(5000, "m", "a"), rec(1000, "m", "old")]);
+        assert_eq!(st.active_session_id().as_deref(), Some("a"));
+        assert_eq!(st.session_summary("a").unwrap().agg.requests, 1);
+        assert!(st.session_summary("missing").is_none());
+        assert!(st.sessions_cache.is_none());
+        assert_eq!(st.session_summaries()[0].id, "a");
+        st.ingest(vec![rec(6000, "m", "old")]);
+        assert_eq!(st.active_session_id().as_deref(), Some("old"));
+        assert_eq!(st.session_summary("old").unwrap().agg.requests, 2);
+        assert!(st.sessions_cache.is_none());
+    }
+
+    #[test]
+    fn inverted_range_is_empty() {
+        let mut st = UsageStore::new();
+        st.ingest(vec![rec(1000, "m", "s")]);
+        assert!(st.range(2000, 0).is_empty());
     }
 }

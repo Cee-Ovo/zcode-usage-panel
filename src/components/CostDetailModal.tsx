@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
-import { motion } from "motion/react";
+import { AccessibleDialog } from "./AccessibleDialog";
 import { FxButton, FxCloseChip } from "./fx";
 import { api } from "../lib/ipc";
-import { backdropVariants, dialogVariants } from "../lib/motion";
 import type { CostDetailDto, FxInfo } from "../lib/types";
 import { RANGE_LABELS } from "../lib/types";
 import { formatCny, formatTokens, formatUnitPerM } from "../lib/format";
@@ -26,49 +25,28 @@ export function CostDetailModal({
   onClose: () => void;
 }) {
   const [detail, setDetail] = useState<CostDetailDto | null>(null);
+  const [error, setError] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     let alive = true;
     setDetail(null);
+    setError(false);
     api
       .costDetail(rangeKey, model)
       .then((d) => {
         if (alive) setDetail(d);
       })
-      .catch(() => {});
+      .catch(() => { if (alive) setError(true); });
     return () => {
       alive = false;
     };
-  }, [model, rangeKey]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [model, rangeKey, retry]);
 
   const rangeLabel = RANGE_LABELS[rangeKey as keyof typeof RANGE_LABELS] ?? rangeKey;
 
   return (
-    <motion.div
-      className="overlay-backdrop"
-      variants={backdropVariants}
-      initial="initial"
-      animate="enter"
-      exit="exit"
-      role="dialog"
-      aria-modal="true"
-      aria-label={`成本明细 · ${model}`}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <motion.div
-        className="panel overlay-card cost-modal"
-        variants={dialogVariants}
-      >
+    <AccessibleDialog label={`成本明细 · ${model}`} onClose={onClose} className="cost-modal">
         <div className="panel-title">
           成本明细 · {model}
           <span className="muted" style={{ fontWeight: 500 }}>
@@ -79,7 +57,12 @@ export function CostDetailModal({
           </span>
         </div>
 
-        {!detail ? (
+        {error ? (
+          <div role="alert" className="empty-state">
+            成本明细加载失败。
+            <FxButton variant="quiet" size="small" onClick={() => setRetry((n) => n + 1)}>重试</FxButton>
+          </div>
+        ) : !detail ? (
           <div className="empty-state">
             <span className="fx-spinner" aria-hidden style={{ marginRight: 8, verticalAlign: -1 }} />
             正在加载成本明细…
@@ -145,7 +128,6 @@ export function CostDetailModal({
             )}
           </>
         )}
-      </motion.div>
-    </motion.div>
+    </AccessibleDialog>
   );
 }

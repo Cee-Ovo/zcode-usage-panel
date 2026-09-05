@@ -891,12 +891,17 @@ function VolcengineCredentials() {
 }
 
 function DiagnosePanel({ diag }: { diag: DiagnoseDto }) {
+  const [showLocalDetails, setShowLocalDetails] = useState(false);
   return (
     <div style={{ marginTop: 10, fontSize: 12 }}>
+      <label style={{ display: "block", marginBottom: 8 }}>
+        <input type="checkbox" checked={showLocalDetails} onChange={(e) => setShowLocalDetails(e.target.checked)} />
+        显示本机路径与错误详情（分享截图前请关闭）
+      </label>
       <div className="kv">
         <span className="k">数据根目录</span>
         <span>
-          {diag.root ?? "(未找到)"} <span className="muted">({diag.rootSource})</span>
+          {diag.root ? (showLocalDetails ? diag.root : "[本机路径已隐藏]") : "(未找到)"} <span className="muted">({diag.rootSource})</span>
         </span>
         <span className="k">JSONL 文件</span>
         <span>{diag.jsonlFiles.length} 个已跟踪</span>
@@ -909,20 +914,20 @@ function DiagnosePanel({ diag }: { diag: DiagnoseDto }) {
         {diag.error && (
           <>
             <span className="k">错误</span>
-            <span style={{ color: "var(--zup-danger)" }}>{diag.error}</span>
+            <span style={{ color: "var(--zup-danger)" }}>{showLocalDetails ? diag.error : "检测到数据源异常，详情已隐藏"}</span>
           </>
         )}
       </div>
       {diag.jsonlFiles.slice(0, 6).map((f) => (
         <div key={f.path} className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-          {f.path} · {f.recordsRead} 条 · offset {f.offset}
+          {showLocalDetails ? f.path : "[JSONL 路径已隐藏]"} · {f.recordsRead} 条 · offset {f.offset}
           {f.linesSkipped > 0 ? ` · 跳过 ${f.linesSkipped} 行` : ""}
-          {f.lastError ? ` · ${f.lastError}` : ""}
+          {f.lastError ? ` · ${showLocalDetails ? f.lastError : "异常详情已隐藏"}` : ""}
         </div>
       ))}
       {diag.sqliteFiles.slice(0, 4).map((f) => (
         <div key={f.path} className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-          {f.path} · 表 {f.table ?? "?"} · {f.recordsRead} 条
+          {showLocalDetails ? f.path : "[SQLite 路径已隐藏]"} · 表 {showLocalDetails ? (f.table ?? "?") : "[已隐藏]"} · {f.recordsRead} 条
         </div>
       ))}
       {diag.recentRecords.length > 0 && (

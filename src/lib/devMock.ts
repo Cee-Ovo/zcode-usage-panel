@@ -3,6 +3,7 @@ import type {
   DashboardDto,
   ProviderSnapshot,
   SessionSummary,
+  SessionsPageDto,
   Settings,
   TrendDto,
   UsageUpdateEvent,
@@ -363,3 +364,135 @@ export const mockState: Partial<AppState> = {
     quotaAlerts: { enabled: true, thresholds: [50, 20, 10], packageExpiryDays: 7, dailyCostCny: 50 },
   } satisfies Settings,
 };
+
+/** Browser-only equivalent of the paged sessions query. */
+export function mockSessionsPage(
+  query = "",
+  sort: "recent" | "tokens" = "recent",
+  page = 0,
+  pageSize = 50,
+): SessionsPageDto {
+  const normalized = query.trim().toLocaleLowerCase();
+  const all = (mockState.sessions ?? []).filter((s) => {
+    if (!normalized) return true;
+    return [s.id, s.project ?? "", ...s.models]
+      .join("\u0000")
+      .toLocaleLowerCase()
+      .includes(normalized);
+  });
+  all.sort((a, b) => {
+    const primary = sort === "tokens"
+      ? totalSessionTokens(b) - totalSessionTokens(a)
+      : (b.agg.lastTsMs ?? -Infinity) - (a.agg.lastTsMs ?? -Infinity);
+    return primary || a.id.localeCompare(b.id);
+  });
+  const size = Math.min(100, Math.max(1, Math.floor(pageSize) || 50));
+  const safePage = Math.max(0, Math.floor(page) || 0);
+  return {
+    items: all.slice(safePage * size, (safePage + 1) * size),
+    total: all.length,
+    page: safePage,
+    pageSize: size,
+  };
+}
+
+export const mockHistoryHealth = {
+  persistent: true,
+  error: null,
+  lastSuccessMs: now - 4_000,
+};
+
+function totalSessionTokens(s: SessionSummary): number {
+  return s.agg.input + s.agg.output + s.agg.reasoning.sum + s.agg.cacheRead.sum + s.agg.cacheWrite.sum;
+}
+
+/** Minimal browser IPC adapter used only by the Vite development preview. */
+export async function mockInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
+  const state = mockState;
+  switch (cmd) {
+    case "get_usage_view": return {
+      dash: { ...state.dash, rangeKey: args.rangeKey ?? "today" },
+      trend: args.includeTrend ? { ...state.trend, rangeKey: args.rangeKey ?? "today" } : null,
+      costSummary: { ...state.costSummary, range: args.rangeKey ?? "today" },
+      revision: state.update?.recordCount ?? 0,
+    } as T;
+    case "get_bootstrap":
+      return { settings: state.settings, version: state.version ?? "1.2.0-dev", configDir: null, cacheDir: null } as T;
+    case "get_dashboard": return {
+      ...state.dash,
+      rangeKey: String(args.rangeKey ?? state.dash?.rangeKey ?? "today"),
+    } as T;
+    case "get_trend": return {
+      ...state.trend,
+      rangeKey: String(args.rangeKey ?? state.trend?.rangeKey ?? "today"),
+    } as T;
+    case "get_sessions": return (state.sessions ?? []) as T;
+    case "get_sessions_page": return mockSessionsPage(
+      String(args.query ?? ""),
+      args.sort === "tokens" ? "tokens" : "recent",
+      Number(args.page ?? 0),
+      Number(args.pageSize ?? 50),
+    ) as T;
+    case "get_session_detail": {
+      const summary = state.sessions?.find((s) => s.id === String(args.sessionId));
+      return (summary ? { summary, buckets: [], models: [] } : null) as T;
+    }
+    case "get_model_detail": {
+      const name = String(args.name ?? "glm-5.3");
+      const model = state.dash?.models?.find((entry) => entry.name === name) ?? state.dash?.models?.[0];
+      const modelAgg = model?.agg ?? state.dash?.agg;
+      const total = modelAgg ? modelAgg.input + modelAgg.output + modelAgg.reasoning.sum + modelAgg.cacheRead.sum + modelAgg.cacheWrite.sum : 0;
+      return {
+        name,
+        today: modelAgg,
+        last7d: modelAgg,
+        last30d: modelAgg,
+        allTime: modelAgg,
+        avgTokensPerRequest: modelAgg && modelAgg.requests > 0 ? total / modelAgg.requests : 0,
+        hitRate: modelAgg && modelAgg.hitInputTotal > 0 ? modelAgg.hitCached / modelAgg.hitInputTotal : null,
+        lastUsedMs: modelAgg?.lastTsMs ?? null,
+        trend30d: state.trend?.buckets ?? [],
+        topSessions: (state.sessions ?? []).slice(0, 10).map((session) => [session.id, totalSessionTokens(session)]),
+      } as T;
+    }
+    case "get_alerts": return (state.alerts ?? []) as T;
+    case "get_active_models": return ["glm-5.3", "glm-5.3-air", "deepseek-v4"] as T;
+    case "cost_summary": return { ...state.costSummary, range: String(args.range ?? state.costSummary?.range ?? "today") } as T;
+    case "providers_overview": return (state.providers ?? []) as T;
+    case "quota_alerts_list": return (state.quotaAlerts ?? []) as T;
+    case "providers_history": return [] as T;
+    case "providers_consumption": return [] as T;
+    case "history_health": return mockHistoryHealth as T;
+    case "set_settings": return args.newSettings as T;
+    case "refresh_now":
+    case "providers_refresh":
+    case "pricing_refresh": return { ok: true, fxOk: true, error: null, refreshedAt: new Date().toISOString() } as T;
+    case "diagnose": return {
+      root: null, rootSource: "mock", jsonlFiles: [], sqliteFiles: [], untrackedJsonl: 0,
+      untrackedSqlite: 0, notes: [], recordCount: state.update?.recordCount ?? 0,
+      lastRefreshMs: state.update?.lastRefreshMs ?? null, error: null, recentRecords: [],
+    } as T;
+    case "pricing_table": return {
+      entries: [], unknownModels: [], fx: { usdCny: 7.16, updatedAt: "2026-09-01", source: "mock" },
+      remoteUrl: null, lastRefresh: null, lastError: null,
+    } as T;
+    case "cost_detail": return { model: String(args.model ?? "unknown"), priced: false, notes: ["浏览器 mock 未配置价格"], totalCny: 0, lines: [] } as T;
+    case "zcode_status": return state.providers?.find((p) => p.provider === "zcode") as T;
+    case "volcengine_credentials_status": return { configured: false, backend: "mock", akHint: null } as T;
+    case "hide_main_window":
+    case "export_data":
+    case "dock_hover":
+    case "dock_interact":
+    case "popup_close":
+    case "quit_app":
+    case "pricing_override":
+    case "zcode_launch":
+    case "zcode_reveal":
+    case "volcengine_credentials_set":
+    case "volcengine_credentials_clear":
+    case "volcengine_test":
+      throw new Error(`${cmd} is unavailable in browser mock`);
+    default:
+      throw new Error(`Unsupported browser mock command: ${cmd}`);
+  }
+}

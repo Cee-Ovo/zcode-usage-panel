@@ -24,7 +24,7 @@ use crate::settings::{LauncherSettings, Settings};
 
 use super::antigravity::{self, InstallPaths, LocalTransport, UreqLocalTransport};
 use super::codex::CodexProvider;
-use super::history::QuotaHistory;
+use super::history::{HistoryHealth, QuotaHistory};
 use super::quota_alerts::{AlertEvent, AlertMemory, QuotaAlertEngine};
 use super::secrets::{
     KeyringStorage, MemoryStorage, SecretStorage, SecretErrorKind, KEY_VOLCENGINE_AK,
@@ -608,6 +608,11 @@ impl ProviderHub {
     pub fn consumption(&self, provider: &str, window: &str, days: u32, now: i64) -> Vec<(i64, f64)> {
         let inner = self.inner.lock().unwrap();
         inner.history.daily_consumption(provider, window, days, now)
+    }
+
+    pub fn history_health(&self) -> HistoryHealth {
+        let inner = self.inner.lock().unwrap();
+        inner.history.health()
     }
 }
 

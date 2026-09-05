@@ -10,6 +10,7 @@
 use std::path::Path;
 
 use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 
 use super::{Forecast, PackageInfo, ProviderSnapshot, QuotaWindow};
 
@@ -28,30 +29,78 @@ pub struct HistoryPoint {
     pub remaining: Option<f64>,
 }
 
+/// Health of the history store.  Errors are deliberately generic: paths,
+/// SQLite diagnostics, and any credential-like data must not cross the IPC
+/// boundary.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryHealth {
+    pub persistent: bool,
+    pub error: Option<String>,
+    pub last_success_ms: Option<i64>,
+}
+
 pub struct QuotaHistory {
     conn: Connection,
+    health: HistoryHealth,
 }
+
+const ERR_OPEN: &str = "history database unavailable; using in-memory history";
+const ERR_MIGRATION: &str = "history database migration failed; using in-memory history";
+const ERR_WRITE: &str = "history persistence failed; changes rolled back";
 
 impl QuotaHistory {
     /// Open (creating if needed) with migrations applied. Errors degrade to
     /// an in-memory DB so history is a nice-to-have, never a crash path.
     pub fn open(path: Option<&Path>) -> QuotaHistory {
-        let conn = match path {
-            Some(p) => {
-                // At first launch the cache dir may not exist yet — create
-                // it so the DB lands on disk instead of falling back to
-                // memory (which would silently lose history).
-                if let Some(dir) = p.parent() {
-                    let _ = std::fs::create_dir_all(dir);
-                }
-                Connection::open(p)
-                    .or_else(|_| Connection::open_in_memory())
-                    .expect("sqlite in-memory fallback always succeeds")
+        let memory = |error: Option<&str>| {
+            let mut h = QuotaHistory {
+                conn: Connection::open_in_memory().expect("sqlite in-memory fallback always succeeds"),
+                health: HistoryHealth {
+                    persistent: false,
+                    error: None,
+                    last_success_ms: None,
+                },
+            };
+            // Fallback history must remain usable; initialize the same schema
+            // in memory before returning it.
+            if h.migrate().is_err() {
+                h.health.error = Some(ERR_MIGRATION.into());
+            } else {
+                h.health.error = error.map(str::to_string);
             }
-            None => Connection::open_in_memory().expect("sqlite in-memory always succeeds"),
+            h
         };
-        let mut h = QuotaHistory { conn };
-        let _ = h.migrate();
+        let Some(path) = path else {
+            return memory(None);
+        };
+
+        // At first launch the cache dir may not exist yet.  A failure here is
+        // a failed disk backend, distinct from the deliberate None/memory
+        // mode; do not delete or reset an existing user database.
+        if path
+            .parent()
+            .map(std::fs::create_dir_all)
+            .transpose()
+            .is_err()
+        {
+            return memory(Some(ERR_OPEN));
+        }
+        let conn = match Connection::open(path) {
+            Ok(conn) => conn,
+            Err(_) => return memory(Some(ERR_OPEN)),
+        };
+        let mut h = QuotaHistory {
+            conn,
+            health: HistoryHealth {
+                persistent: true,
+                error: None,
+                last_success_ms: None,
+            },
+        };
+        if h.migrate().is_err() {
+            return memory(Some(ERR_MIGRATION));
+        }
         h
     }
 
@@ -59,12 +108,27 @@ impl QuotaHistory {
         Self::open(None)
     }
 
+    pub fn health(&self) -> HistoryHealth {
+        self.health.clone()
+    }
+
+    fn mark_success(&mut self, ts_ms: i64) {
+        // A successful in-memory fallback write does not repair the failed
+        // disk backend; retain its open/migration diagnostic so callers can
+        // distinguish it from deliberate memory mode.  Transient write
+        // errors, however, may clear after a later successful write.
+        if self.health.persistent || self.health.error.as_deref() == Some(ERR_WRITE) {
+            self.health.error = None;
+        }
+        self.health.last_success_ms = Some(ts_ms);
+    }
+
     /// Additive migrations keyed by `PRAGMA user_version`. Each step runs in
     /// a transaction; unknown future versions (older binary, newer DB) are
     /// left untouched.
     fn migrate(&mut self) -> rusqlite::Result<()> {
         let version: i64 = self.conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version < 1 {
+        if version < SCHEMA_VERSION {
             self.conn.execute_batch(
                 "BEGIN;
                  CREATE TABLE snapshots (
@@ -118,7 +182,14 @@ impl QuotaHistory {
                 },
             ));
         }
-        let _ = self.conn.execute("BEGIN", []);
+        let tx = match self.conn.transaction() {
+            Ok(tx) => tx,
+            Err(_) => {
+                self.health.error = Some(ERR_WRITE.into());
+                return;
+            }
+        };
+        let mut wrote = false;
         for (key, w) in rows {
             let effective = w.effective_percent();
             if effective.is_none()
@@ -127,10 +198,10 @@ impl QuotaHistory {
             {
                 continue; // nothing quantifiable to track
             }
-            if !Self::should_insert(&self.conn, &snap.provider, &key, effective, w.remaining_quota, snap.updated_at_ms) {
+            if !Self::should_insert(&tx, &snap.provider, &key, effective, w.remaining_quota, snap.updated_at_ms) {
                 continue;
             }
-            let _ = self.conn.execute(
+            if tx.execute(
                 "INSERT INTO snapshots (ts_ms, provider, window_key, used_percent, total, used, remaining)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 rusqlite::params![
@@ -142,10 +213,22 @@ impl QuotaHistory {
                     w.used_quota,
                     w.remaining_quota,
                 ],
-            );
+            ).is_err() {
+                self.health.error = Some(ERR_WRITE.into());
+                return;
+            }
+            wrote = true;
         }
-        let _ = self.conn.execute("COMMIT", []);
-        let _ = self.prune(snap.updated_at_ms);
+        let cutoff = snap.updated_at_ms - 400 * 24 * 3600_000;
+        if tx.execute("DELETE FROM snapshots WHERE ts_ms < ?1", [cutoff]).is_err()
+            || tx.commit().is_err()
+        {
+            self.health.error = Some(ERR_WRITE.into());
+            return;
+        }
+        if wrote {
+            self.mark_success(snap.updated_at_ms);
+        }
     }
 
     fn should_insert(
@@ -178,14 +261,6 @@ impl QuotaHistory {
             (None, None) => false,
         };
         pct_changed || rem_changed
-    }
-
-    /// Drop points older than 400 days. Cheap (indexed) and runs only after
-    /// inserts actually happened.
-    fn prune(&self, now_ms: i64) -> rusqlite::Result<()> {
-        let cutoff = now_ms - 400 * 24 * 3600_000;
-        self.conn.execute("DELETE FROM snapshots WHERE ts_ms < ?1", [cutoff])?;
-        Ok(())
     }
 
     /// Trend points for one provider window over a time range.
@@ -309,11 +384,22 @@ impl QuotaHistory {
         if !changed {
             return;
         }
-        let _ = self.conn.execute(
+        let tx = match self.conn.transaction() {
+            Ok(tx) => tx,
+            Err(_) => {
+                self.health.error = Some(ERR_WRITE.into());
+                return;
+            }
+        };
+        if tx.execute(
             "INSERT INTO snapshots (ts_ms, provider, window_key, used_percent, total, used, remaining)
              VALUES (?1, 'zcode', 'daily_cost', NULL, NULL, ?2, NULL)",
             rusqlite::params![now_ms, cost_cny],
-        );
+        ).is_err() || tx.commit().is_err() {
+            self.health.error = Some(ERR_WRITE.into());
+            return;
+        }
+        self.mark_success(now_ms);
     }
 
     /// Attach forecasts (computed from history) onto a snapshot's windows.
@@ -399,9 +485,81 @@ mod tests {
     fn schema_migrates_to_v1() {
         let h = QuotaHistory::open_in_memory();
         assert_eq!(h.schema_version(), 1);
+        assert_eq!(h.health(), HistoryHealth { persistent: false, error: None, last_success_ms: None });
         // reopening is idempotent
         let h2 = QuotaHistory::open_in_memory();
         assert_eq!(h2.schema_version(), 1);
+    }
+
+    #[test]
+    fn failed_disk_creation_is_reported_without_path_details() {
+        let dir = tempfile::tempdir().unwrap();
+        let parent_file = dir.path().join("not-a-directory");
+        std::fs::write(&parent_file, b"occupied").unwrap();
+        let mut h = QuotaHistory::open(Some(&parent_file.join("history.sqlite")));
+        let health = h.health();
+        assert!(!health.persistent);
+        assert!(health.error.is_some());
+        assert!(!health.error.unwrap().contains("not-a-directory"));
+        h.record(&snap_with("p", "w", 10.0, 900.0, 1234));
+        assert_eq!(h.points("p", "w", 0, 2000).len(), 1);
+        assert!(!h.health().persistent);
+    }
+
+    #[test]
+    fn failed_migration_falls_back_without_mutating_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("broken.sqlite");
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute("CREATE TABLE snapshots (only_one_column INTEGER)", []).unwrap();
+        drop(conn);
+        let h = QuotaHistory::open(Some(&path));
+        assert!(!h.health().persistent);
+        assert_eq!(h.health().error.as_deref(), Some(ERR_MIGRATION));
+        // The unusable disk database remains in place for recovery/inspection.
+        assert!(path.exists());
+        let mut h = h;
+        h.record(&snap_with("fallback", "w", 10.0, 900.0, 7));
+        assert_eq!(h.points("fallback", "w", 0, i64::MAX).len(), 1);
+        assert_eq!(h.health().error.as_deref(), Some(ERR_MIGRATION));
+    }
+
+    #[test]
+    fn record_rolls_back_all_rows_when_one_insert_fails() {
+        let mut h = QuotaHistory::open_in_memory();
+        h.conn.execute_batch(
+            "CREATE TRIGGER reject_b BEFORE INSERT ON snapshots
+             WHEN NEW.window_key = 'b'
+             BEGIN SELECT RAISE(ABORT, 'test failure'); END;",
+        ).unwrap();
+        let mut s = snap_with("p", "a", 10.0, 900.0, 42);
+        s.windows.push(QuotaWindow {
+            key: "b".into(),
+            label: "b".into(),
+            used_percent: Some(20.0),
+            remaining_quota: Some(800.0),
+            total_quota: Some(1000.0),
+            used_quota: Some(200.0),
+            ..Default::default()
+        });
+        h.record(&s);
+        assert!(h.points("p", "a", 0, i64::MAX).is_empty());
+        assert_eq!(h.health().error.as_deref(), Some(ERR_WRITE));
+    }
+
+    #[test]
+    fn healthy_disk_record_reports_success_timestamp_and_camel_case() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("healthy.sqlite");
+        let mut h = QuotaHistory::open(Some(&path));
+        assert!(h.health().persistent);
+        h.record(&snap_with("p", "w", 10.0, 900.0, 1234));
+        let health = h.health();
+        assert_eq!(health.last_success_ms, Some(1234));
+        assert!(health.error.is_none());
+        let json = serde_json::to_value(health).unwrap();
+        assert_eq!(json["lastSuccessMs"], 1234);
+        assert!(json.get("last_success_ms").is_none());
     }
 
     #[test]

@@ -7,11 +7,32 @@ import { store, useStore } from "./lib/store";
 import type { RangeKey } from "./lib/types";
 import { RANGE_KEYS, RANGE_LABELS } from "./lib/types";
 import { TitleBar, WindowFrame } from "./components/WindowFrame";
+import { HistoryHealthStatus } from "./components/HistoryHealthStatus";
 import { DashboardPage } from "./pages/Dashboard";
 import { SessionsPage } from "./pages/Sessions";
 import { ModelsPage } from "./pages/Models";
 import { SettingsPage } from "./pages/Settings";
 import { formatClock } from "./lib/format";
+import { createQueryCoordinator, type QueryCoordinator } from "./lib/queryCoordinator";
+import type { AppState } from "./lib/store";
+
+type DataPage = "dashboard" | "models";
+type QueryPayload = Awaited<ReturnType<typeof api.usageView>>;
+
+function createAppQueryCoordinator() {
+  return createQueryCoordinator<DataPage, QueryPayload>({
+    fetch: ({ page, rangeKey: key }) => api.usageView(key, page === "dashboard"),
+    apply: (result) => {
+      const patch: Partial<AppState> = {
+        dash: result.dash,
+        costSummary: result.costSummary,
+      };
+      if (result.trend !== null) patch.trend = result.trend;
+      store.set(patch);
+    },
+    onStateChange: (next) => store.set({ refresh: next }),
+  });
+}
 
 /**
  * Application shell: glass theme provider, custom frame (title bar +
@@ -28,9 +49,15 @@ export function App() {
   const update = useStore((s) => s.update);
   const suspended = update?.suspended ?? false;
   const rangeKey = useStore((s) => s.rangeKey);
+  const ready = useStore((s) => s.ready);
+  const initializationError = useStore((s) => s.initializationError);
+  const refresh = useStore((s) => s.refresh);
   const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">(
     theme === "dark" ? "dark" : "light",
   );
+  const coordinatorRef = useRef<QueryCoordinator<DataPage, QueryPayload> | null>(null);
+  const bootstrapRetryRef = useRef<(() => void) | null>(null);
+  const initializationFailedRef = useRef(false);
 
   // ---- theme ---------------------------------------------------------------
   useEffect(() => {
@@ -66,82 +93,130 @@ export function App() {
     return () => document.removeEventListener("visibilitychange", syncAmbientState);
   }, []);
 
-  // ---- bootstrap + data pump -------------------------------------------------
-  const rangeRef = useRef(rangeKey);
-  rangeRef.current = rangeKey;
-
-  const refreshQueries = useCallback(async () => {
-    const key = rangeRef.current;
-    const [dash, trend, cost] = await Promise.all([
-      api.dashboard(key),
-      api.trend(key),
-      api.costSummary(key),
-    ]);
-    store.set({ dash, trend, costSummary: cost });
+  const requestVisiblePage = useCallback(() => {
+    const queryCoordinator = coordinatorRef.current;
+    if (!queryCoordinator) return;
+    const current = store.get();
+    if (!current.ready || document.hidden || (current.page !== "dashboard" && current.page !== "models")) {
+      queryCoordinator.setVisible(false);
+      return;
+    }
+    queryCoordinator.request({
+      page: current.page,
+      rangeKey: current.rangeKey,
+      visible: true,
+    });
   }, []);
 
   const refreshAll = useCallback(() => {
     api.refreshNow().catch(() => {});
-    refreshQueries().catch(() => {});
-    api.sessions().then((sessions) => store.set({ sessions })).catch(() => {});
-  }, [refreshQueries]);
+    const current = store.get();
+    if (current.page === "sessions") {
+      window.dispatchEvent(new Event("zup-page-sessions"));
+    } else {
+      requestVisiblePage();
+    }
+  }, [requestVisiblePage]);
+
+  const retryRefresh = useCallback(() => {
+    if (!store.get().ready || initializationFailedRef.current || store.get().initializationError) {
+      bootstrapRetryRef.current?.();
+    }
+    else requestVisiblePage();
+  }, [requestVisiblePage]);
 
   useEffect(() => {
+    const queryCoordinator = createAppQueryCoordinator();
+    coordinatorRef.current = queryCoordinator;
     let disposed = false;
-    (async () => {
-      const boot = await api.bootstrap();
-      if (disposed) return;
-      store.set({
-        ready: true,
-        version: boot.version,
-        settings: boot.settings,
-        rangeKey: (RANGE_KEYS as readonly string[]).includes(boot.settings.defaultRange)
-          ? (boot.settings.defaultRange as RangeKey)
-          : "today",
-      });
-      await refreshQueries();
-      const sessions = await api.sessions();
-      const alerts = await api.alerts();
-      const providers = await api.providersOverview();
-      const quotaAlerts = await api.quotaAlertsList();
-      if (!disposed) store.set({ sessions, alerts, providers, quotaAlerts });
-    })().catch(console.error);
+    const bootstrap = async () => {
+      try {
+        const boot = await api.bootstrap();
+        if (disposed) return;
+        initializationFailedRef.current = false;
+        store.set({
+          ready: true,
+          initializationError: null,
+          version: boot.version,
+          settings: boot.settings,
+          rangeKey: (RANGE_KEYS as readonly string[]).includes(boot.settings.defaultRange)
+            ? (boot.settings.defaultRange as RangeKey)
+            : "today",
+        });
+        const alerts = await api.alerts();
+        const providers = await api.providersOverview();
+        const quotaAlerts = await api.quotaAlertsList();
+        if (!disposed) store.set({ alerts, providers, quotaAlerts });
+      } catch {
+        if (!disposed) {
+          initializationFailedRef.current = true;
+          store.set({
+            initializationError: "初始化失败，请重试",
+          });
+        }
+      }
+    };
+    bootstrapRetryRef.current = () => void bootstrap();
+    void bootstrap();
 
-    const unsubs: (() => void)[] = [];
-    onEvent<import("./lib/types").UsageUpdateEvent>("usage-update", (e) => {
+    const registerEvent = <T,>(name: string, handler: (payload: T) => void) => {
+      let cancelled = false;
+      let unlisten: (() => void) | null = null;
+      onEvent<T>(name, (payload) => {
+        if (!cancelled && !disposed) handler(payload);
+      })
+        .then((u) => {
+          if (cancelled || disposed) u();
+          else unlisten = u;
+        })
+        .catch(() => {});
+      const cleanup = () => {
+        cancelled = true;
+        if (unlisten) {
+          unlisten();
+          unlisten = null;
+        }
+      };
+      eventCleanups.push(cleanup);
+    };
+    const eventCleanups: (() => void)[] = [];
+
+    registerEvent<import("./lib/types").UsageUpdateEvent>("usage-update", (e) => {
       store.set({ update: e });
       // Refresh the visible queries — Rust only emits at most ~2×/s.
-      refreshQueries().catch(() => {});
-    }).then((u) => unsubs.push(u));
+      requestVisiblePage();
+    });
 
-    onEvent<import("./lib/types").ProviderSnapshot[]>("provider-update", (snaps) => {
+    registerEvent<import("./lib/types").ProviderSnapshot[]>("provider-update", (snaps) => {
       store.set({ providers: snaps ?? [] });
-    }).then((u) => unsubs.push(u));
+    });
 
-    onEvent<import("./lib/types").QuotaAlertEvent>("quota-alert", (ev) => {
+    registerEvent<import("./lib/types").QuotaAlertEvent>("quota-alert", (ev) => {
       const current = store.get().quotaAlerts;
       store.set({ quotaAlerts: [ev, ...current].slice(0, 50) });
-    }).then((u) => unsubs.push(u));
+    });
 
-    onEvent<boolean>("ui-visibility", (visible) => {
+    registerEvent<boolean>("ui-visibility", (visible) => {
       if (visible) {
         api.refreshNow().catch(() => {});
-        refreshQueries().catch(() => {});
+        requestVisiblePage();
+      } else {
+        coordinatorRef.current?.setVisible(false);
       }
-    }).then((u) => unsubs.push(u));
+    });
 
-    onEvent<import("./lib/types").AlertEvent>("alert", (ev) => {
+    registerEvent<import("./lib/types").AlertEvent>("alert", (ev) => {
       const current = store.get().alerts;
       store.set({ alerts: [ev, ...current].slice(0, 50) });
-    }).then((u) => unsubs.push(u));
+    });
 
-    onEvent<import("./lib/types").Settings>("settings-changed", (s) => {
+    registerEvent<import("./lib/types").Settings>("settings-changed", (s) => {
       store.set({ settings: s });
-    }).then((u) => unsubs.push(u));
+    });
 
-    onEvent<string>("navigate", (target) => {
+    registerEvent<string>("navigate", (target) => {
       if (target === "settings") store.set({ page: "settings" });
-    }).then((u) => unsubs.push(u));
+    });
 
     // model visibility toggles from chart chips
     const onToggle = (e: Event) => {
@@ -152,34 +227,30 @@ export function App() {
 
     return () => {
       disposed = true;
-      unsubs.forEach((u) => u());
+      bootstrapRetryRef.current = null;
+      queryCoordinator.dispose();
+      if (coordinatorRef.current === queryCoordinator) coordinatorRef.current = null;
+      eventCleanups.forEach((cleanup) => cleanup());
       window.removeEventListener("zup-toggle-model", onToggle);
     };
-  }, [refreshQueries]);
+  }, [requestVisiblePage]);
 
-  // Sessions list refreshes only while its page is visible (cheap either
-  // way: the backend serves a memoized slice) — no idle polling.
   useEffect(() => {
-    const refresh = () => {
-      if (store.get().page === "sessions") {
-        api.sessions().then((sessions) => store.set({ sessions })).catch(() => {});
-      }
+    if (ready) requestVisiblePage();
+    else coordinatorRef.current?.setVisible(false);
+  }, [ready, page, rangeKey, requestVisiblePage]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.hidden) coordinatorRef.current?.setVisible(false);
+      else requestVisiblePage();
     };
-    const t = setInterval(refresh, 15_000);
-    window.addEventListener("zup-page-sessions", refresh);
-    return () => {
-      clearInterval(t);
-      window.removeEventListener("zup-page-sessions", refresh);
-    };
-  }, []);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [requestVisiblePage]);
 
   const setRange = useCallback(
-    (key: string) => {
-      store.set({ rangeKey: key });
-      Promise.all([api.dashboard(key), api.trend(key), api.costSummary(key)])
-        .then(([dash, trend, cost]) => store.set({ dash, trend, costSummary: cost }))
-        .catch(() => {});
-    },
+    (key: string) => store.set({ rangeKey: key }),
     [],
   );
 
@@ -273,6 +344,37 @@ export function App() {
                   <div>更新 {formatClock(update.lastRefreshMs)}</div>
                 ) : null}
                 {update?.restoredFromCache && <div>显示缓存统计,同步中…</div>}
+                {initializationError && (
+                  <div role="alert" style={{ color: "var(--zup-red-600, #b42318)" }}>
+                    初始化失败 · {initializationError}{" "}
+                    <button
+                      type="button"
+                      className="zup-nav-item"
+                      onClick={retryRefresh}
+                      style={{ padding: "1px 5px", marginLeft: 2 }}
+                    >
+                      重试
+                    </button>
+                  </div>
+                )}
+                {refresh.loading && <div role="status">数据刷新中…</div>}
+                {refresh.error && !initializationError && (
+                  <div role="alert" style={{ color: "var(--zup-red-600, #b42318)" }}>
+                    刷新失败 · {refresh.error}{" "}
+                    <button
+                      type="button"
+                      className="zup-nav-item"
+                      onClick={retryRefresh}
+                      style={{ padding: "1px 5px", marginLeft: 2 }}
+                    >
+                      重试
+                    </button>
+                  </div>
+                )}
+                {refresh.lastSuccessMs !== null && (
+                  <div>最近成功 {formatClock(refresh.lastSuccessMs)}</div>
+                )}
+                <HistoryHealthStatus />
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
                   <span>实时</span>
                   <Switch

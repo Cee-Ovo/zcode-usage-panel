@@ -36,6 +36,9 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
   const costSummary = useStore((s) => s.costSummary);
   const alerts = useStore((s) => s.alerts);
   const [expanded, setExpanded] = useState(false);
+  const [compact, setCompact] = useState(() => {
+    try { return localStorage.getItem("zup.compact") === "true"; } catch { return false; }
+  });
   const [costModalModel, setCostModalModel] = useState<string | null>(null);
 
   const refreshAction = useAction(
@@ -74,6 +77,18 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
           items={RANGE_KEYS.map((k) => ({ value: k, label: RANGE_LABELS[k] }))}
         />
         {dash.restored && <span className="badge-note">缓存快照 · 同步中</span>}
+        {dash.rangeKey !== rangeKey && (
+          <span role="status" className="badge-note">
+            待更新 · 仍显示{RANGE_LABELS[dash.rangeKey as keyof typeof RANGE_LABELS] ?? dash.rangeKey}数据
+          </span>
+        )}
+        <FxButton variant="quiet" size="small" aria-pressed={compact} onClick={() => {
+          const next = !compact;
+          setCompact(next);
+          try { localStorage.setItem("zup.compact", String(next)); } catch { /* optional preference */ }
+        }}>
+          {compact ? "显示详细指标" : "精简视图"}
+        </FxButton>
         {dash.dataError && (
           <span className="badge-note" title={dash.dataError}>
             数据源异常
@@ -123,6 +138,7 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
             </span>
           }
         />
+        {!compact && <>
         <MetricCard
           label="Input Token"
           value={<AnimatedNumber value={agg.input} format={formatTokens} />}
@@ -167,6 +183,7 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
               : undefined
           }
         />
+        </>}
         <MetricCard
           label="请求次数"
           value={<AnimatedNumber value={agg.requests} format={formatFull} />}
@@ -302,7 +319,7 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
       {/* trend */}
       <div className="panel">
         <div className="panel-title">
-          实时趋势 · {RANGE_LABELS[rangeKey as keyof typeof RANGE_LABELS] ?? rangeKey}
+          实时趋势 · {RANGE_LABELS[(trend?.rangeKey ?? rangeKey) as keyof typeof RANGE_LABELS] ?? rangeKey}
           <span className="right">
             <InfoDot text="点击模型名可单独显示/隐藏该模型的曲线。" />
           </span>
@@ -346,6 +363,13 @@ function ModelLine({
       {...rowGestures}
       transition={softSpring}
       className="model-row"
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault(); e.currentTarget.click();
+        }
+      }}
       onClick={() => {
         store.set({ page: "models" });
         api.modelDetail(row.name).then((d) => store.set({ modelDetail: d })).catch(() => {});
@@ -374,6 +398,14 @@ function ModelLine({
       <span
         className="num"
         title="点击查看成本明细"
+        role="button"
+        tabIndex={0}
+        aria-label={`${row.name} 成本明细`}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault(); e.stopPropagation(); onCostClick();
+          }
+        }}
         onClick={(e) => {
           e.stopPropagation();
           onCostClick();

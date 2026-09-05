@@ -8,8 +8,9 @@ import { store, useStore } from "../lib/store";
 import type { ModelDetailDto } from "../lib/types";
 import { cacheHitRate, totalTokens } from "../lib/types";
 import { formatCny, formatFull, formatPercent, formatRelative, formatTokens, shortSessionId } from "../lib/format";
-import { backdropVariants, dialogVariants, listItemVariants, rowGestures, softSpring } from "../lib/motion";
+import { listItemVariants, rowGestures, softSpring } from "../lib/motion";
 import { FxCloseChip } from "../components/fx";
+import { AccessibleDialog } from "../components/AccessibleDialog";
 
 export function ModelsPage() {
   const dash = useStore((s) => s.dash);
@@ -31,6 +32,11 @@ export function ModelsPage() {
             <motion.div
               key={row.name}
               className="model-row"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.currentTarget.click(); }
+              }}
               layout="position"
               variants={listItemVariants}
               initial="initial"
@@ -101,18 +107,7 @@ function ModelDetailCard({ detail }: { detail: ModelDetailDto }) {
     detail.allTime.input + detail.allTime.output + detail.allTime.reasoning.sum || 1;
 
   return (
-    <motion.div
-      key={detail.name}
-      className="overlay-backdrop"
-      variants={backdropVariants}
-      initial="initial"
-      animate="enter"
-      exit="exit"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) store.set({ modelDetail: null });
-      }}
-    >
-      <motion.div className="panel overlay-card" variants={dialogVariants}>
+    <AccessibleDialog label={`模型详情 · ${detail.name}`} onClose={() => store.set({ modelDetail: null })}>
         <div className="panel-title">
           模型详情 · {detail.name}
           <span className="right">
@@ -199,7 +194,6 @@ function ModelDetailCard({ detail }: { detail: ModelDetailDto }) {
             <span style={{ width: 70, textAlign: "right" }}>{formatTokens(tokens)}</span>
           </div>
         ))}
-      </motion.div>
-    </motion.div>
+    </AccessibleDialog>
   );
 }

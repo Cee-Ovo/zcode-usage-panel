@@ -44,12 +44,31 @@ fn synth(start_ts: i64, i: usize, models: &[&str]) -> UsageRecord {
     }
 }
 
-fn rss_mb() -> f64 {
+fn rss_mb() -> Option<f64> {
     #[cfg(windows)]
     {
-        // Best-effort via windows crate is overkill here; fall back to
-        // GetProcessMemoryInfo-free estimate.
-        0.0
+        #[repr(C)]
+        #[derive(Default)]
+        struct Counters {
+            cb: u32,
+            page_fault_count: u32,
+            peak_working_set: usize,
+            working_set: usize,
+            quota_peak_paged_pool: usize,
+            quota_paged_pool: usize,
+            quota_peak_non_paged_pool: usize,
+            quota_non_paged_pool: usize,
+            pagefile: usize,
+            peak_pagefile: usize,
+        }
+        #[link(name = "psapi")]
+        extern "system" {
+            fn GetProcessMemoryInfo(process: *mut std::ffi::c_void, counters: *mut Counters, size: u32) -> i32;
+        }
+        let mut counters = Counters { cb: std::mem::size_of::<Counters>() as u32, ..Default::default() };
+        // Windows' current-process pseudo-handle; no handle ownership/close.
+        let ok = unsafe { GetProcessMemoryInfo(-1isize as *mut _, &mut counters, std::mem::size_of::<Counters>() as u32) };
+        (ok != 0).then_some(counters.working_set as f64 / (1024.0 * 1024.0))
     }
     #[cfg(not(windows))]
     {
@@ -61,7 +80,6 @@ fn rss_mb() -> f64 {
                     .and_then(|l| l.split_whitespace().nth(1).and_then(|kb| kb.parse::<f64>().ok()))
                     .map(|kb| kb / 1024.0)
             })
-            .unwrap_or(0.0)
     }
 }
 
@@ -123,6 +141,12 @@ fn main() {
         t4.elapsed().as_secs_f64() * 1000.0
     );
 
+    // Direct live-card lookup must not rebuild the full sessions cache.
+    let direct_start = Instant::now();
+    let active = store.active_session_id().and_then(|id| store.session_summary(&id));
+    assert!(active.is_some());
+    println!("6a. direct active-session lookup: {:>8.3} ms", direct_start.elapsed().as_secs_f64() * 1000.0);
+
     // 6. session summaries
     let t5 = Instant::now();
     let sessions = store.session_summaries().len();
@@ -131,6 +155,9 @@ fn main() {
         t5.elapsed().as_secs_f64() * 1000.0
     );
 
-    println!("7. resident memory (RSS): {:>8.1} MB", rss_mb());
+    match rss_mb() {
+        Some(mb) => println!("7. resident memory (RSS): {:>8.1} MB", mb),
+        None => println!("7. resident memory (RSS): unavailable"),
+    }
     println!("=== done ===");
 }

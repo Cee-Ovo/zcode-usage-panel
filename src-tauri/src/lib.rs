@@ -45,8 +45,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_bootstrap,
             commands::get_dashboard,
+            commands::get_usage_view,
             commands::get_trend,
             commands::get_sessions,
+            commands::get_sessions_page,
             commands::get_session_detail,
             commands::get_model_detail,
             commands::get_alerts,
@@ -77,6 +79,7 @@ pub fn run() {
             commands::volcengine_credentials_set,
             commands::volcengine_credentials_clear,
             commands::volcengine_test,
+            commands::history_health,
         ])
         .setup(|app| setup(app))
         .on_window_event(|window, event| on_window_event(window, event))

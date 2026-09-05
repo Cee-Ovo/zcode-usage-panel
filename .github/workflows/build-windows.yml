@@ -31,7 +31,7 @@ jobs:
           cache-on-failure: true
 
       - name: Install frontend dependencies
-        run: npm install --no-fund --no-audit
+        run: npm ci --no-fund --no-audit
 
       - name: Generate icon set (pure-Node PNG encoder + tauri icon)
         run: node scripts/ensure-icons.mjs

@@ -79,10 +79,25 @@ export interface SessionSummary {
   agg: Agg;
 }
 
+export type SessionSort = "recent" | "tokens";
+
+export interface SessionsPageDto {
+  items: SessionSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface SessionDetailDto {
   summary: SessionSummary;
   buckets: Bucket[];
   models: ModelStat[];
+}
+
+export interface HistoryHealth {
+  persistent: boolean;
+  error: string | null;
+  lastSuccessMs: number | null;
 }
 
 export interface ModelDetailDto {
@@ -511,4 +526,11 @@ export function cacheHitRate(agg: Agg): number | null {
 export function coverage(stat: FieldStat, requests: number): number {
   if (requests <= 0) return 0;
   return stat.present / requests;
+}
+/** Atomic dashboard/trend/cost response from one ingestion revision. */
+export interface UsageViewDto {
+  dash: DashboardDto;
+  trend: TrendDto | null;
+  costSummary: CostSummaryDto;
+  revision: number;
 }

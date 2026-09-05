@@ -84,20 +84,20 @@ export function CodexUsagePanel() {
         event.currentTarget.style.setProperty("--liquid-y", "0px");
       }}
     >
-      <div className="panel-title" style={{ marginBottom: 0 }}>
-        Codex 本地 Token 用量
-        <span className="muted" style={{ fontWeight: 500, fontSize: 10.5 }}>
+      <div className="panel-title codex-heading">
+        <span className="codex-heading-title">Codex 本地 Token 用量</span>
+        <span className="muted codex-heading-subtitle">
           session 日志统计 · 不计入 ZCode 总 Token
         </span>
-        <span className="right">
-          <FxChip onClick={() => setDetail(true)} title="查看 Codex 详情(官方额度 / 模型明细)">
+        <span className="right codex-heading-actions">
+          <FxChip className="codex-detail-chip" onClick={() => setDetail(true)} title="查看 Codex 详情(官方额度 / 模型明细)">
             详情 ›
           </FxChip>
         </span>
       </div>
 
       {loading ? (
-        <div className="muted" style={{ fontSize: 11.5, padding: "10px 0" }}>
+        <div className="muted codex-loading">
           正在初始化 Provider…
         </div>
       ) : !codex ? (
@@ -115,6 +115,7 @@ export function CodexUsagePanel() {
           <div className="codex-range-control">
             <LiquidSegmentedControl
               aria-label="Codex 本地 Token 时间范围"
+              className="codex-range-tabs"
               value={rangeKey}
               onValueChange={(value) => {
                 setRangeKey(value);
@@ -138,30 +139,30 @@ export function CodexUsagePanel() {
                 transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
               >
                 <div className="codex-headline">
-                  <span className="muted" style={{ fontSize: 12 }}>
+                  <span className="muted codex-headline-label">
                     {CODEX_RANGE_LABELS[rangeKey]}
                   </span>
-                  <span className="big">
+                  <span className="big codex-headline-value">
                     <AnimatedNumber value={selected.breakdown.totalTokens} format={formatTokens} />
                   </span>
-                  <span className="muted" style={{ fontSize: 11 }}>
+                  <span className="muted codex-headline-unit">
                     tokens
                   </span>
-                  <span style={{ marginLeft: "auto" }}>
+                  <span className="codex-headline-info">
                     <InfoDot text={CODEX_EXPLAIN} />
                   </span>
                 </div>
 
                 <div className="codex-mini">
-                  <span>
+                  <span className="codex-stat">
                     <span className="k">Sessions </span>
                     {formatFull(selected.sessions)}
                   </span>
-                  <span>
+                  <span className="codex-stat">
                     <span className="k">请求 </span>
                     {formatFull(selected.breakdown.requests)}
                   </span>
-                  <span>
+                  <span className="codex-stat">
                     <span className="k">模型 </span>
                     {formatFull(selected.models.length)}
                   </span>
@@ -227,12 +228,12 @@ export function CodexUsagePanel() {
 
 function UnavailableLine({ text, hint }: { text: string; hint?: string }) {
   return (
-    <div style={{ padding: "8px 0 2px" }}>
-      <div className="unavailable" style={{ fontSize: 12.5 }}>
+    <div className="codex-unavailable-line">
+      <div className="unavailable codex-unavailable-title">
         {text}
       </div>
       {hint && (
-        <div className="muted" style={{ fontSize: 10.5, marginTop: 3 }} title={hint}>
+        <div className="muted codex-unavailable-hint" title={hint}>
           {hint}
         </div>
       )}
@@ -287,15 +288,15 @@ function CodexModelList({
                 }}
               />
             </div>
-            <span style={{ width: 64, textAlign: "right", fontWeight: 600 }}>
+            <span className="codex-model-value">
               {formatTokens(m.breakdown.totalTokens)}
             </span>
           </motion.div>
         ))}
       </AnimatePresence>
       {sorted.length > 3 && (
-        <div style={{ marginTop: 4 }}>
-          <FxChip onClick={() => onToggle(!expanded)}>
+        <div className="codex-model-toggle">
+          <FxChip className="codex-toggle-chip" onClick={() => onToggle(!expanded)}>
             {expanded ? "收起" : `展开全部 (${sorted.length})`}
           </FxChip>
         </div>

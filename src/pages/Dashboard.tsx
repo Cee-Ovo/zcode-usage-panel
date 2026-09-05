@@ -62,14 +62,21 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
 
   return (
     <motion.div
-      className="zup-grid"
-      style={{ paddingTop: 6 }}
+      className="zup-grid dashboard-page"
       variants={staggerContainer}
       initial="initial"
       animate="enter"
     >
+      <header className="page-heading">
+        <div>
+          <span className="page-eyebrow">USAGE OVERVIEW</span>
+          <h1>用量概览</h1>
+          <p>本地用量与服务额度，清晰掌握每一次使用。</p>
+        </div>
+        <span className="source-label"><span aria-hidden="true">▤</span> 本地数据面板</span>
+      </header>
       {/* range selector */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      <div className="dashboard-toolbar">
         <LiquidSegmentedControl
           aria-label="时间范围"
           value={rangeKey}
@@ -111,18 +118,20 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
           below; official plan quotas live in the quota section) */}
       <motion.div
         key={rangeKey}
-        className="zup-grid metrics-grid"
+        className={`zup-grid metrics-grid dashboard-metrics${compact ? " is-compact" : ""}`}
         variants={staggerContainer}
         initial="initial"
         animate="enter"
       >
         <MetricCard
+          className="metric-card--primary"
           label="ZCode 总 Token"
           value={<AnimatedNumber value={totalTokens(agg)} format={formatTokens} />}
           sub={`${formatFull(totalTokens(agg))} tokens`}
           hint={TOTAL_HINT}
         />
         <MetricCard
+          className="metric-card--cost"
           label="API 等价花费"
           value={
             costSummary ? (
@@ -195,6 +204,7 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
           hint={HIT_HINT}
         />
         <MetricCard
+          className="metric-card--model"
           label="活跃模型"
           value={
             <span style={{ fontSize: 14.5 }}>

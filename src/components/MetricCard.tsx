@@ -9,20 +9,22 @@ export function MetricCard({
   sub,
   hint,
   unavailable = false,
+  className = "",
 }: {
   label: string;
   value: ReactNode;
   sub?: ReactNode;
   hint?: string;
   unavailable?: boolean;
+  className?: string;
 }) {
   return (
     <motion.div
       layout
       variants={cardVariants}
-      whileHover={{ y: -2 }}
+      whileHover={{ y: -1 }}
       transition={softSpring}
-      className="metric-card liquid-metric"
+      className={`metric-card liquid-metric ${className}`.trim()}
       title={hint}
       onPointerMove={(event) => {
         const rect = event.currentTarget.getBoundingClientRect();

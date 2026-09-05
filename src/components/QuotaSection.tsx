@@ -60,11 +60,11 @@ export const QuotaSection = memo(function QuotaSection() {
 
   if (providers.length === 0) {
     return (
-      <div className="panel">
-        <div className="panel-title">
+      <div className="panel quota-section">
+        <div className="panel-title quota-heading">
           服务额度
-          <span className="right">
-            <FxChip onClick={refreshAll}>刷新</FxChip>
+          <span className="right quota-heading-actions">
+            <FxChip className="quota-refresh-chip" onClick={refreshAll}>刷新</FxChip>
           </span>
         </div>
         <div className="empty-state">正在初始化 Provider…</div>
@@ -73,14 +73,14 @@ export const QuotaSection = memo(function QuotaSection() {
   }
 
   return (
-    <div className="panel">
-      <div className="panel-title">
-        服务额度
-        <span className="right" style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <span className="muted" style={{ fontSize: 10.5 }}>
+    <div className="panel quota-section">
+      <div className="panel-title quota-heading">
+        <span className="quota-heading-title">服务额度</span>
+        <span className="right quota-heading-actions">
+          <span className="muted quota-heading-subtitle">
             官方额度与本地用量分开统计
           </span>
-          <FxChip onClick={refreshAll}>全部刷新</FxChip>
+          <FxChip className="quota-refresh-chip" onClick={refreshAll}>全部刷新</FxChip>
         </span>
       </div>
       <motion.div
@@ -124,9 +124,11 @@ function ProviderCard({ snap, onDetail }: { snap: ProviderSnapshot; onDetail: ()
     >
       <div className="quota-card-head">
         <span className="name">{label}</span>
-        <span className={`status-dot ${statusClass === "ok" ? "" : statusClass}`} />
-        <span className="muted status-text">
-          {PROVIDER_STATUS_LABELS[snap.status] ?? snap.status}
+        <span className={`quota-status-badge status-${statusClass}`}>
+          <span className={`status-dot ${statusClass === "ok" ? "" : statusClass}`} />
+          <span className="muted status-text">
+            {PROVIDER_STATUS_LABELS[snap.status] ?? snap.status}
+          </span>
         </span>
         <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <FxSpinOnClick

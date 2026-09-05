@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GlassSystemProvider, OrganicFilterDefinition, Switch } from "open-glass-ui";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion/react";
 import { api, onEvent } from "./lib/ipc";
+import { NavIcon } from "./components/NavIcon";
 import { pageVariants, popSpring, softSpring } from "./lib/motion";
 import { store, useStore } from "./lib/store";
 import type { RangeKey } from "./lib/types";
@@ -263,7 +264,7 @@ export function App() {
           ["models", "模型", "◈"],
           ["settings", "设置", "⚙"],
         ] as const
-      ).map(([id, label, icon]) => (
+      ).map(([id, label]) => (
         <motion.button
           key={id}
           layout
@@ -297,7 +298,7 @@ export function App() {
             animate={{ scale: 1 }}
             transition={popSpring}
           >
-            {icon}
+            <NavIcon name={id} />
           </motion.span>
           <span className="zup-nav-content">{label}</span>
         </motion.button>
@@ -332,6 +333,7 @@ export function App() {
           <TitleBar title="ZCode Usage Panel" onRefresh={refreshAll} />
           <div className="zup-body">
             <nav className="zup-nav">
+              <div className="nav-section-label">工作空间</div>
               <LayoutGroup id="primary-navigation">{nav}</LayoutGroup>
               <div className="footnote">
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>

@@ -236,6 +236,7 @@ mod tests {
             cache_read_tokens: None,
             cache_write_tokens: None,
             source_file: "t".into(),
+            ..Default::default()
         }
     }
 

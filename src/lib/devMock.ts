@@ -224,6 +224,18 @@ export const mockState: Partial<AppState> = {
     },
     restored: false,
     dataError: null,
+    speed: {
+      ttftAvgMs: 1_873,
+      ttftP50Ms: 1_420,
+      ttftP95Ms: 2_633,
+      ttftSamples: 112,
+      speedTps: 74.6,
+      speedP50Tps: 76.2,
+      speedSamples: 112,
+      completedRequests: 164,
+      generatedTokens: 71_240,
+      generationMs: 954_000,
+    },
   } satisfies DashboardDto,
   trend: {
     rangeKey: "today",

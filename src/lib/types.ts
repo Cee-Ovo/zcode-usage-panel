@@ -18,6 +18,20 @@ export interface Agg {
   lastTsMs: number | null;
 }
 
+/** ZCode 响应速度统计(与 Agg 同一范围的查询期现算,样本为 0 时字段为 null)。 */
+export interface SpeedStats {
+  ttftAvgMs: number | null;
+  ttftP50Ms: number | null;
+  ttftP95Ms: number | null;
+  ttftSamples: number;
+  speedTps: number | null;
+  speedP50Tps: number | null;
+  speedSamples: number;
+  completedRequests: number;
+  generatedTokens: number;
+  generationMs: number;
+}
+
 export interface ModelStat {
   name: string;
   agg: Agg;
@@ -53,6 +67,7 @@ export interface DashboardDto {
   agg: Agg;
   models: ModelRow[];
   activeSession: ActiveSession | null;
+  speed: SpeedStats;
   restored: boolean;
   dataError: string | null;
 }

@@ -47,6 +47,14 @@ const ALIAS_TIME: &[&str] = &[
     "timestamp", "ts", "time", "created_at", "createdat", "request_timestamp",
     "requesttimestamp", "date", "created_at_ms", "timestamp_ms", "started_at",
 ];
+const ALIAS_DURATION: &[&str] = &["duration_ms", "durationms", "duration"];
+const ALIAS_TTFT: &[&str] = &[
+    "time_to_first_token_ms",
+    "timetofirsttokenms",
+    "ttft_ms",
+    "first_token_ms",
+];
+const ALIAS_STATUS: &[&str] = &["status"];
 const ALIAS_MODEL: &[&str] = &["model", "model_name", "modelname", "model_id", "modelid"];
 const ALIAS_SESSION: &[&str] = &["session_id", "sessionid", "session", "conversation_id"];
 const ALIAS_PROJECT: &[&str] = &["project", "project_path", "projectpath", "cwd", "workspace"];
@@ -71,6 +79,12 @@ pub struct ColumnMap {
     pub reasoning: Option<String>,
     pub cache_read: Option<String>,
     pub cache_write: Option<String>,
+    /// Whole-request duration (speed metrics; optional).
+    pub duration: Option<String>,
+    /// Source-reported time to first token (optional).
+    pub ttft: Option<String>,
+    /// Terminal request status (optional).
+    pub status: Option<String>,
     /// rowid-style column used as the incremental watermark.
     pub watermark: Option<String>,
 }
@@ -211,6 +225,9 @@ fn map_table(conn: &Connection, table: &str) -> Option<MappedTable> {
         if map.reasoning.is_none() && first_alias_match(col, ALIAS_REASONING) { map.reasoning = Some(col.clone()); }
         if map.cache_read.is_none() && first_alias_match(col, ALIAS_CACHE_READ) { map.cache_read = Some(col.clone()); }
         if map.cache_write.is_none() && first_alias_match(col, ALIAS_CACHE_WRITE) { map.cache_write = Some(col.clone()); }
+        if map.duration.is_none() && first_alias_match(col, ALIAS_DURATION) { map.duration = Some(col.clone()); }
+        if map.ttft.is_none() && first_alias_match(col, ALIAS_TTFT) { map.ttft = Some(col.clone()); }
+        if map.status.is_none() && first_alias_match(col, ALIAS_STATUS) { map.status = Some(col.clone()); }
     }
     if map.token_column_count() == 0 {
         return None;
@@ -301,9 +318,10 @@ pub fn read_new(state: &mut SqliteSourceState) -> Result<Vec<UsageRecord>, Sourc
         select_cols.push(format!("\"{wm_col}\""));
     }
     // Selection order MUST match the `raws` indexing below:
-    // [time, model, session, project, input, output, reasoning, cache_read, cache_write]
+    // [time, model, session, project, input, output, reasoning, cache_read,
+    //  cache_write, duration, ttft, status]
     // Every slot occupies a fixed result column — absent mapped columns are
-    // selected as NULL so the fixed 9-slot `raws` layout stays aligned.
+    // selected as NULL so the fixed 12-slot `raws` layout stays aligned.
     for col in [
         &table.map.time,
         &table.map.model,
@@ -314,6 +332,9 @@ pub fn read_new(state: &mut SqliteSourceState) -> Result<Vec<UsageRecord>, Sourc
         &table.map.reasoning,
         &table.map.cache_read,
         &table.map.cache_write,
+        &table.map.duration,
+        &table.map.ttft,
+        &table.map.status,
     ] {
         match col {
             Some(c) => select_cols.push(format!("\"{c}\"")),
@@ -387,8 +408,8 @@ pub fn read_new(state: &mut SqliteSourceState) -> Result<Vec<UsageRecord>, Sourc
                     vref_to_i64(v).unwrap_or(0)
                 };
                 // Read the mapped cells (order fixed by `select_cols` above).
-                let mut raws: Vec<Option<String>> = Vec::with_capacity(9);
-                for _ in 0..9 {
+                let mut raws: Vec<Option<String>> = Vec::with_capacity(12);
+                for _ in 0..12 {
                     let v = row.get_ref(idx).ok();
                     idx += 1;
                     raws.push(v.and_then(vref_to_string));
@@ -419,6 +440,9 @@ pub fn read_new(state: &mut SqliteSourceState) -> Result<Vec<UsageRecord>, Sourc
                     reasoning_tokens: num(&raws[6]),
                     cache_read_tokens: num(&raws[7]),
                     cache_write_tokens: num(&raws[8]),
+                    duration_ms: num(&raws[9]),
+                    ttft_ms: num(&raws[10]),
+                    status: raws[11].clone().filter(|s| !s.is_empty()),
                     source_file: source_file.clone(),
                 });
                 max_wm = max_wm.max(wm);
@@ -546,8 +570,9 @@ mod tests {
     fn zcode_cli_model_usage_schema_reads_real_records() {
         // Mirrors the real ZCode CLI `model_usage` table: TEXT primary key
         // (hidden rowid), `started_at` ms timestamps, `model_id` as the model
-        // name, NO project column, cache_creation/cache_read columns. This is
-        // the exact shape that previously returned 0 records because
+        // name, NO project column, cache_creation/cache_read columns — plus
+        // the timing/status columns the speed metrics consume. This is the
+        // exact shape that previously returned 0 records because
         // `started_at` was not a recognized time alias.
         let dir = tempfile::tempdir().unwrap();
         let db = dir.path().join("usage.db");
@@ -559,6 +584,8 @@ mod tests {
                 model_id TEXT NOT NULL,
                 status TEXT NOT NULL,
                 started_at INTEGER NOT NULL,
+                duration_ms INTEGER,
+                time_to_first_token_ms INTEGER,
                 input_tokens INTEGER NOT NULL DEFAULT 0,
                 output_tokens INTEGER NOT NULL DEFAULT 0,
                 reasoning_tokens INTEGER NOT NULL DEFAULT 0,
@@ -568,25 +595,44 @@ mod tests {
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO model_usage (id, session_id, model_id, status, started_at, input_tokens, output_tokens, reasoning_tokens, cache_creation_input_tokens, cache_read_input_tokens)
-             VALUES ('r1', 's1', 'glm-5.2', 'completed', 1786278274308, 8423, 78, 0, 0, 0)",
+            "INSERT INTO model_usage (id, session_id, model_id, status, started_at, duration_ms, time_to_first_token_ms, input_tokens, output_tokens, reasoning_tokens, cache_creation_input_tokens, cache_read_input_tokens)
+             VALUES ('r1', 's1', 'glm-5.2', 'completed', 1786278274308, 9590, 1239, 8423, 643, 0, 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO model_usage (id, session_id, model_id, status, started_at, duration_ms, time_to_first_token_ms, input_tokens, output_tokens, reasoning_tokens, cache_creation_input_tokens, cache_read_input_tokens)
+             VALUES ('r2', 's1', 'glm-5.2', 'error', 1786278280000, 500, NULL, 10, 0, 0, 0, 0)",
             [],
         )
         .unwrap();
 
         let mut st = SqliteSourceState::new(db.clone());
         let recs = read_new(&mut st).unwrap();
-        assert_eq!(recs.len(), 1);
+        assert_eq!(recs.len(), 2);
         assert_eq!(recs[0].ts_ms, 1786278274308);
         assert_eq!(recs[0].model, "glm-5.2");
         assert_eq!(recs[0].session_id.as_deref(), Some("s1"));
         assert_eq!(recs[0].project, None);
         // Column alignment: input/output must not be swapped (no project col).
         assert_eq!(recs[0].input_tokens, 8423);
-        assert_eq!(recs[0].output_tokens, 78);
+        assert_eq!(recs[0].output_tokens, 643);
         assert_eq!(recs[0].reasoning_tokens, Some(0));
         assert_eq!(recs[0].cache_write_tokens, Some(0));
         assert_eq!(recs[0].cache_read_tokens, Some(0));
+        // Timing/status extraction feeds the speed metrics.
+        assert_eq!(recs[0].duration_ms, Some(9590));
+        assert_eq!(recs[0].ttft_ms, Some(1239));
+        assert_eq!(recs[0].status.as_deref(), Some("completed"));
+        assert_eq!(recs[1].duration_ms, Some(500));
+        assert_eq!(recs[1].ttft_ms, None);
+        assert_eq!(recs[1].status.as_deref(), Some("error"));
+
+        // Speed caliber: the error row never becomes a sample.
+        let speed = crate::zcode::aggregate::compute_speed_stats(&recs);
+        assert_eq!(speed.completed_requests, 1);
+        assert_eq!(speed.ttft_samples, 1);
+        assert!((speed.speed_tps.unwrap() - 643.0 * 1000.0 / (9590.0 - 1239.0)).abs() < 1e-6);
 
         // Incremental: second read returns nothing new.
         assert!(read_new(&mut st).unwrap().is_empty());

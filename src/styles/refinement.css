@@ -136,13 +136,17 @@
 .zup-frame .dashboard-metrics { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
 .zup-frame .dashboard-metrics > .metric-card { padding: 14px 12px; }
 .zup-frame .dashboard-metrics > :is(.metric-card--primary, .metric-card--cost) { grid-column: span 3; padding: 21px 24px; }
+/* 普通指标卡固定占 2 列:加入响应速度卡后保持 3×3 + (命中率+活跃模型) 满排节奏。 */
+.zup-frame .dashboard-metrics > .metric-card:not(.metric-card--primary):not(.metric-card--cost):not(.metric-card--model) { grid-column: span 2; }
 :root .zup-frame .metric-card--primary { background: linear-gradient(115deg, color-mix(in srgb, var(--zup-blue-500) 5%, var(--refine-surface)), var(--refine-surface)); }
 .zup-frame .dashboard-metrics > :is(.metric-card--primary, .metric-card--cost) .value { font-size: 33px; font-weight: 650; margin-top: 12px; letter-spacing: -.04em; }
 .zup-frame .metric-card--primary .value { color: var(--zup-blue-600); }
-.zup-frame .dashboard-metrics > .metric-card--model { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 11px 16px; }
+.zup-frame .dashboard-metrics > .metric-card--model { grid-column: span 4; display: flex; align-items: center; gap: 14px; padding: 11px 16px; }
 .zup-frame .dashboard-metrics > .metric-card--model .value { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .zup-frame .dashboard-metrics > .metric-card--model .sub { margin: 0 0 0 auto; white-space: nowrap; }
 .zup-frame .dashboard-metrics.is-compact > .metric-card:nth-child(n+3) { grid-column: span 2; display: block; }
+/* 精简视图加入响应速度卡后,活跃模型恢复整行,保持 3+3 / 2+2+2 / 整行的满排节奏。 */
+.zup-frame .dashboard-metrics.is-compact > .metric-card--model { grid-column: 1 / -1; }
 .zup-frame .dashboard-metrics.is-compact > .metric-card--model .value { margin-top: 8px; }
 .zup-frame .dashboard-metrics.is-compact > .metric-card--model .sub { margin-top: 7px; }
 

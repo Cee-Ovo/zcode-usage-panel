@@ -181,6 +181,9 @@ mod tests {
             reasoning_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            duration_ms: None,
+            ttft_ms: None,
+            status: None,
             source_file: "t".into(),
         }
     }

@@ -9,7 +9,8 @@ use tauri::{AppHandle, Emitter, Manager, State, Window};
 use crate::engine::now_ms;
 use crate::settings::{self, Settings};
 use crate::zcode::aggregate::{
-    bucketize, group_by_model, resolve_span, Agg, Bucket, ModelStat, SessionSummary, TrendRange,
+    bucketize, compute_speed_stats, group_by_model, resolve_span, Agg, Bucket, ModelStat,
+    SessionSummary, SpeedStats, TrendRange,
 };
 use crate::zcode::pricing::{
     CostDetailDto, CostSummaryDto, OverrideDto, PricingManager, PricingRefreshResultDto,
@@ -76,6 +77,9 @@ pub struct DashboardDto {
     pub agg: Agg,
     pub models: Vec<ModelRow>,
     pub active_session: Option<ActiveSession>,
+    /// TTFT / tok-s statistics for the same range (all-None when the source
+    /// records no timing fields).
+    pub speed: SpeedStats,
     /// true while numbers come from the persisted boot snapshot.
     pub restored: bool,
     pub data_error: Option<String>,
@@ -296,6 +300,7 @@ fn dashboard_from_inner(range_key: &str, inner: &crate::engine::EngineInner, now
         a.add(r);
         a
     });
+    let speed = compute_speed_stats(records);
     let active = if inner.store.is_empty() {
         None
     } else {
@@ -319,6 +324,7 @@ fn dashboard_from_inner(range_key: &str, inner: &crate::engine::EngineInner, now
         agg,
         models,
         active_session: active,
+        speed,
         restored,
         data_error: inner.last_error.clone(),
     }
@@ -950,6 +956,7 @@ mod sessions_page_tests {
             session_id: Some("s".into()), project: None,
             input_tokens: 100, output_tokens: 20, reasoning_tokens: None,
             cache_read_tokens: None, cache_write_tokens: None, source_file: "synthetic".into(),
+            ..Default::default()
         }]);
         let view = usage_view_from_inner("all", true, &inner, &pricing, 1_756_300_060_000);
         assert_eq!(view.revision, 1);

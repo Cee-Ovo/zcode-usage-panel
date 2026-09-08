@@ -228,6 +228,105 @@ pub fn bucketize(records: &[UsageRecord], from_ms: i64, to_ms: i64, buckets: usi
 }
 
 // ---------------------------------------------------------------------------
+// Response-speed statistics (TTFT / tokens-per-second)
+// ---------------------------------------------------------------------------
+
+/// Speed-class metrics over a set of usage records. Honest-caliber rules:
+/// - Only requests the source marks completed (or that carry no status at
+///   all) contribute; `error` / `cancelled` / `running` rows are excluded.
+/// - TTFT values are source-provided originals, never derived here.
+/// - tok/s counts output + reasoning tokens over the *generation* window
+///   (duration − TTFT), so requests without a usable TTFT are excluded from
+///   the speed aggregate instead of being averaged under a different
+///   convention.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SpeedStats {
+    pub ttft_avg_ms: Option<f64>,
+    pub ttft_p50_ms: Option<f64>,
+    pub ttft_p95_ms: Option<f64>,
+    /// Records with a source-provided TTFT.
+    pub ttft_samples: u64,
+    /// Σ generated tokens ÷ Σ generation seconds (weighted aggregate).
+    pub speed_tps: Option<f64>,
+    /// Median per-request speed (tok/s), for context next to the weighted
+    /// aggregate.
+    pub speed_p50_tps: Option<f64>,
+    /// Records with a usable TTFT + duration + generated tokens.
+    pub speed_samples: u64,
+    /// Completed (or status-unknown) requests in range — the denominator for
+    /// coverage notes.
+    pub completed_requests: u64,
+    /// Σ output + reasoning tokens behind `speed_tps`.
+    pub generated_tokens: u64,
+    /// Σ (duration − TTFT) milliseconds behind `speed_tps`.
+    pub generation_ms: u64,
+}
+
+fn status_is_completed(status: &Option<String>) -> bool {
+    match status.as_deref() {
+        None | Some("completed") => true,
+        Some(_) => false,
+    }
+}
+
+/// Nearest-rank percentile of a non-empty sorted ascending slice.
+fn percentile(sorted: &[u64], pct: f64) -> u64 {
+    debug_assert!(!sorted.is_empty());
+    let rank = ((sorted.len() as f64) * pct).ceil() as usize;
+    sorted[rank.clamp(1, sorted.len()) - 1]
+}
+
+/// Compute TTFT / tok-s statistics over `records` (usually one range slice).
+pub fn compute_speed_stats(records: &[UsageRecord]) -> SpeedStats {
+    let mut stats = SpeedStats::default();
+    let mut ttfts: Vec<u64> = Vec::new();
+    let mut per_request_tps: Vec<f64> = Vec::new();
+
+    for r in records {
+        if !status_is_completed(&r.status) {
+            continue;
+        }
+        stats.completed_requests += 1;
+
+        if let Some(ttft) = r.ttft_ms.filter(|t| r.duration_ms.map_or(true, |d| d >= *t)) {
+            ttfts.push(ttft);
+        }
+
+        let generated = r.output_tokens.saturating_add(r.reasoning_tokens.unwrap_or(0));
+        if let (Some(ttft), Some(duration)) = (r.ttft_ms, r.duration_ms) {
+            if generated > 0 && duration > ttft {
+                let gen_ms = duration - ttft;
+                stats.generated_tokens += generated;
+                stats.generation_ms += gen_ms;
+                per_request_tps.push(generated as f64 * 1000.0 / gen_ms as f64);
+            }
+        }
+    }
+
+    if !ttfts.is_empty() {
+        let sum: u128 = ttfts.iter().map(|t| *t as u128).sum();
+        stats.ttft_avg_ms = Some(sum as f64 / ttfts.len() as f64);
+        ttfts.sort_unstable();
+        stats.ttft_p50_ms = Some(percentile(&ttfts, 0.50) as f64);
+        stats.ttft_p95_ms = Some(percentile(&ttfts, 0.95) as f64);
+        stats.ttft_samples = ttfts.len() as u64;
+    }
+    if !per_request_tps.is_empty() {
+        stats.speed_tps = Some(stats.generated_tokens as f64 * 1000.0 / stats.generation_ms as f64);
+        per_request_tps.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mid = per_request_tps.len() / 2;
+        stats.speed_p50_tps = Some(if per_request_tps.len() % 2 == 0 {
+            (per_request_tps[mid - 1] + per_request_tps[mid]) / 2.0
+        } else {
+            per_request_tps[mid]
+        });
+        stats.speed_samples = per_request_tps.len() as u64;
+    }
+    stats
+}
+
+// ---------------------------------------------------------------------------
 // Sessions
 // ---------------------------------------------------------------------------
 
@@ -255,6 +354,27 @@ mod tests {
             reasoning_tokens: None,
             cache_read_tokens: cr,
             cache_write_tokens: cw,
+            duration_ms: None,
+            ttft_ms: None,
+            status: None,
+            source_file: "t".into(),
+        }
+    }
+
+    fn speed_rec(ts: i64, output: u64, reasoning: Option<u64>, ttft: Option<u64>, duration: Option<u64>, status: Option<&str>) -> UsageRecord {
+        UsageRecord {
+            ts_ms: ts,
+            model: "m".into(),
+            session_id: None,
+            project: None,
+            input_tokens: 1000,
+            output_tokens: output,
+            reasoning_tokens: reasoning,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            duration_ms: duration,
+            ttft_ms: ttft,
+            status: status.map(str::to_string),
             source_file: "t".into(),
         }
     }
@@ -308,5 +428,76 @@ mod tests {
         assert_eq!(buckets[0].agg.requests, 2);
         assert_eq!(buckets[1].agg.requests, 1);
         assert_eq!(buckets[1].by_model["b"].requests, 1);
+    }
+
+    #[test]
+    fn speed_stats_weighted_aggregate_and_percentiles() {
+        // Three usable samples with hand-computable speeds:
+        //   100 tok over 1s → 100 tps; 300 tok over 3s → 100 tps;
+        //   200 tok over 1s → 200 tps.
+        let recs = vec![
+            speed_rec(1, 100, None, Some(1_000), Some(2_000), None),
+            speed_rec(2, 300, None, Some(1_000), Some(4_000), Some("completed")),
+            speed_rec(3, 200, None, Some(500), Some(1_500), Some("completed")),
+        ];
+        let s = compute_speed_stats(&recs);
+        assert_eq!(s.completed_requests, 3);
+        assert_eq!(s.ttft_samples, 3);
+        // avg ttft = (1000+1000+500)/3; p50 = 1000 (sorted [500,1000,1000]); p95 = 1000
+        assert!((s.ttft_avg_ms.unwrap() - 833.333).abs() < 0.1);
+        assert_eq!(s.ttft_p50_ms, Some(1000.0));
+        assert_eq!(s.ttft_p95_ms, Some(1000.0));
+        // weighted: 600 tokens / 5s = 120 tps (not the mean of 100/100/200 ≈ 133)
+        assert!((s.speed_tps.unwrap() - 120.0).abs() < 1e-9);
+        // median per-request speed = 100
+        assert!((s.speed_p50_tps.unwrap() - 100.0).abs() < 1e-9);
+        assert_eq!(s.speed_samples, 3);
+        assert_eq!(s.generated_tokens, 600);
+        assert_eq!(s.generation_ms, 5_000);
+    }
+
+    #[test]
+    fn speed_stats_exclusions() {
+        let recs = vec![
+            // error + cancelled rows: never counted anywhere
+            speed_rec(1, 500, None, Some(100), Some(2_000), Some("error")),
+            speed_rec(2, 500, None, Some(100), Some(2_000), Some("cancelled")),
+            // running: excluded
+            speed_rec(3, 500, None, Some(100), Some(2_000), Some("running")),
+            // no generated tokens: not a speed sample (but completed + ttft)
+            speed_rec(4, 0, None, Some(700), Some(2_000), None),
+            // duration == ttft (nothing streamed): ttft kept, no speed sample
+            speed_rec(5, 50, None, Some(2_000), Some(2_000), None),
+            // duration < ttft (bad row): both excluded
+            speed_rec(6, 50, None, Some(3_000), Some(2_000), None),
+            // usable: reasoning counts as generated
+            speed_rec(7, 80, Some(20), Some(1_000), Some(3_000), None),
+        ];
+        let s = compute_speed_stats(&recs);
+        assert_eq!(s.completed_requests, 4); // records 4,5,6,7
+        assert_eq!(s.ttft_samples, 3); // 700, 2000, 1000 (3000 excluded)
+        assert_eq!(s.speed_samples, 1);
+        assert_eq!(s.generated_tokens, 100); // 80 + 20 reasoning
+        assert_eq!(s.generation_ms, 2_000);
+        assert!((s.speed_tps.unwrap() - 50.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn speed_stats_empty_when_no_timing_data() {
+        let recs = vec![rec(1, "m", 10, 10, None, None)];
+        let s = compute_speed_stats(&recs);
+        assert_eq!(s.completed_requests, 1);
+        assert_eq!(s.ttft_samples, 0);
+        assert_eq!(s.speed_samples, 0);
+        assert!(s.ttft_avg_ms.is_none());
+        assert!(s.speed_tps.is_none());
+    }
+
+    #[test]
+    fn percentile_nearest_rank() {
+        // 1..=100: p95 = 95, p50 = 50 under nearest-rank.
+        let sorted: Vec<u64> = (1..=100).collect();
+        assert_eq!(percentile(&sorted, 0.95), 95);
+        assert_eq!(percentile(&sorted, 0.50), 50);
     }
 }

@@ -1434,6 +1434,7 @@ mod tests {
             cache_read_tokens: cr,
             cache_write_tokens: cw,
             source_file: "t".into(),
+            ..Default::default()
         }
     }
 

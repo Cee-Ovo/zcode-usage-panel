@@ -41,6 +41,7 @@ fn synth(start_ts: i64, i: usize, models: &[&str]) -> UsageRecord {
         cache_read_tokens: Some(20_000 + (i % 50_000) as u64),
         cache_write_tokens: Some(2_000 + (i % 8_000) as u64),
         source_file: "bench".into(),
+        ..Default::default()
     }
 }
 

@@ -12,22 +12,31 @@ import { FxButton, useAction } from "../components/fx";
 import { api } from "../lib/ipc";
 import { listItemVariants, rowGestures, softSpring, staggerContainer } from "../lib/motion";
 import { store, useStore } from "../lib/store";
-import type { ModelCost, ModelRow } from "../lib/types";
+import type { ModelCost, ModelRow, SpeedStats } from "../lib/types";
 import { cacheHitRate, totalTokens } from "../lib/types";
 import { RANGE_KEYS, RANGE_LABELS } from "../lib/types";
 import {
   formatCny,
   formatFull,
+  formatLatency,
   formatPercent,
   formatRate,
   formatRelative,
   formatTokens,
+  formatTps,
 } from "../lib/format";
 
 const HIT_HINT =
   "Cache Hit Rate = cached input ÷ total input(逐条记录自动判定口径:inclusive schema 用 cached/input;exclusive schema 用 cache_read ÷ (input+cache_read+cache_write))。无 cache 字段的数据不计入,显示 unavailable。";
 const TOTAL_HINT =
   "ZCode 总 Token = Input + Output + Reasoning + Cache(读+写),仅统计 ZCode 本地 usage 记录;\n与 Codex 本地 Token、DSH 本地 Token、服务额度区的官方套餐额度分开统计,互不计入。";
+
+const SPEED_HINT =
+  "首字延迟(TTFT)与 Token 速度均来自 ZCode 本地 model_usage 记录的原始字段,不自行推算。\n" +
+  "样本口径:仅统计状态为 completed(或未记录状态)的请求;error / cancelled / running 剔除。\n" +
+  "TTFT 取每条记录的 time_to_first_token_ms 原值,未记录该字段的请求不计入(副文本标注覆盖样本数)。\n" +
+  "tok/s = Σ(output+reasoning tokens) ÷ Σ生成时长,生成时长 = duration − TTFT;缺 TTFT 或无输出 token 的请求不计入,\n" +
+  "因此不与「全程平均」混算。P95 为最近邻位次法。数据源不记录时间字段的记录存在时,整卡显示 unavailable,绝不编造。";
 
 // ---- 三分区(数据源分区)定义 --------------------------------------------------
 
@@ -279,6 +288,7 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
           label="请求次数"
           value={<AnimatedNumber value={agg.requests} format={formatFull} />}
         />
+        <SpeedCard speed={dash.speed} />
         <MetricCard
           glass
           label="Cache Hit Rate"
@@ -477,6 +487,37 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
         )}
       </AnimatePresence>
     </motion.div>
+  );
+}
+
+/** 响应速度卡:首字延迟均值 + 加权 tok/s;无样本时按惯例显示 unavailable。 */
+function SpeedCard({ speed }: { speed: SpeedStats | undefined }) {
+  const hasSamples = !!speed && speed.ttftSamples > 0;
+  const hasSpeed = !!speed && (speed.speedSamples > 0 || speed.speedTps !== null);
+  const available = hasSamples || hasSpeed;
+  return (
+    <MetricCard
+      glass
+      label="响应速度"
+      value={
+        available ? (
+          <span style={{ whiteSpace: "nowrap" }}>
+            {hasSamples ? formatLatency(speed!.ttftAvgMs) : "—"}
+            <span className="muted" style={{ fontWeight: 400 }}> · </span>
+            {formatTps(speed!.speedTps)}
+          </span>
+        ) : (
+          "unavailable"
+        )
+      }
+      unavailable={!available}
+      sub={
+        available
+          ? `首 token P95 ${formatLatency(speed!.ttftP95Ms)} · 样本 ${speed!.ttftSamples}/${speed!.completedRequests} 条请求`
+          : undefined
+      }
+      hint={SPEED_HINT}
+    />
   );
 }
 

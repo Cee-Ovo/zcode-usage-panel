@@ -21,6 +21,20 @@ export function formatRate(v: number): string {
   return `${formatTokens(v)}/min`;
 }
 
+/** Latency in ms → "2.8 秒" / "870 毫秒"; null → "—". */
+export function formatLatency(ms: number | null): string {
+  if (ms === null || !isFinite(ms) || ms < 0) return "—";
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)} 秒`;
+  return `${Math.round(ms)} 毫秒`;
+}
+
+/** Tokens per second → "87 tok/s"; null → "—". */
+export function formatTps(v: number | null): string {
+  if (v === null || !isFinite(v) || v <= 0) return "—";
+  if (v >= 10) return `${Math.round(v)} tok/s`;
+  return `${v.toFixed(1)} tok/s`;
+}
+
 export function formatClock(ms: number | null): string {
   if (ms === null) return "—";
   const d = new Date(ms);

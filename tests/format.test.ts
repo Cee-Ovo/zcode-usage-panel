@@ -7,6 +7,8 @@ import {
   formatTokens,
   formatUnitPerM,
   shortSessionId,
+  formatLatency,
+  formatTps,
 } from "../src/lib/format";
 
 describe("formatTokens", () => {
@@ -79,5 +81,37 @@ describe("formatUnitPerM", () => {
     expect(formatUnitPerM(null, "CNY")).toBe("—");
     expect(formatUnitPerM(3, "CNY")).toBe("¥3.00/M");
     expect(formatUnitPerM(1.4, "USD")).toBe("$1.40/M");
+  });
+});
+
+describe("formatLatency", () => {
+  it("renders sub-second latency in milliseconds", () => {
+    expect(formatLatency(870)).toBe("870 毫秒");
+    expect(formatLatency(0)).toBe("0 毫秒");
+  });
+  it("renders seconds with one decimal", () => {
+    expect(formatLatency(1873)).toBe("1.9 秒");
+    expect(formatLatency(2830)).toBe("2.8 秒");
+  });
+  it("degrades null and invalid values", () => {
+    expect(formatLatency(null)).toBe("—");
+    expect(formatLatency(Number.NaN)).toBe("—");
+    expect(formatLatency(-5)).toBe("—");
+  });
+});
+
+describe("formatTps", () => {
+  it("rounds to integers from 10 tok/s up", () => {
+    expect(formatTps(87)).toBe("87 tok/s");
+    expect(formatTps(126.7)).toBe("127 tok/s");
+    expect(formatTps(74.62)).toBe("75 tok/s");
+  });
+  it("keeps one decimal for single-digit speeds", () => {
+    expect(formatTps(8.44)).toBe("8.4 tok/s");
+  });
+  it("degrades null and non-positive values", () => {
+    expect(formatTps(null)).toBe("—");
+    expect(formatTps(0)).toBe("—");
+    expect(formatTps(Number.POSITIVE_INFINITY)).toBe("—");
   });
 });

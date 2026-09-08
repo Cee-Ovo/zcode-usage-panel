@@ -12,7 +12,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageRecord {
     /// Request completion time, UTC epoch milliseconds.
@@ -27,6 +27,18 @@ pub struct UsageRecord {
     pub reasoning_tokens: Option<u64>,
     pub cache_read_tokens: Option<u64>,
     pub cache_write_tokens: Option<u64>,
+    /// Whole-request wall time (ZCode `model_usage.duration_ms`).
+    /// `None` = source does not record it.
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+    /// Time to first token, as reported by the source (never derived here).
+    #[serde(default)]
+    pub ttft_ms: Option<u64>,
+    /// Terminal status when the source records one ("completed" /
+    /// "error" / "cancelled" / "running"); `None` = unknown ⇒ treated as
+    /// completed for stats that must exclude failures.
+    #[serde(default)]
+    pub status: Option<String>,
     /// Originating file path (for the data-source inspector).
     pub source_file: String,
 }
@@ -127,6 +139,26 @@ const CACHE_WRITE_ALIASES: &[&[&str]] = &[
     &["cache_creation"],
     &["cache_written_input_tokens"],
 ];
+
+/// Request wall time. Probed on the usage object first, then the whole line
+/// (rollout-style logs put `durationMs` next to the request envelope).
+const DURATION_ALIASES: &[&[&str]] = &[
+    &["duration_ms"],
+    &["durationMs"],
+    &["duration"],
+];
+
+/// Time to first token, only ever taken from a source-provided field.
+const TTFT_ALIASES: &[&[&str]] = &[
+    &["time_to_first_token_ms"],
+    &["timeToFirstTokenMs"],
+    &["ttft_ms"],
+    &["ttftMs"],
+    &["first_token_ms"],
+];
+
+/// Terminal request status ("completed"/"error"/"cancelled"/"running").
+const STATUS_ALIASES: &[&[&str]] = &[&["status"]];
 
 pub fn at<'a>(v: &'a Value, path: &[&str]) -> Option<&'a Value> {
     let mut cur = v;
@@ -261,6 +293,21 @@ pub fn extract_record(line: &Value, ctx: &LineContext) -> Result<Option<UsageRec
         .map(|s| s.to_string())
         .or_else(|| ctx.project_hint.clone());
 
+    let pick_optional = |container: &Value, aliases: &[&[&str]]| -> Option<serde_json::Value> {
+        aliases
+            .iter()
+            .find_map(|p| at(container, p))
+            .cloned()
+            .or_else(|| {
+                aliases
+                    .iter()
+                    .find_map(|p| at(line, p))
+                    .cloned()
+            })
+    };
+    let status = pick_optional(usage, STATUS_ALIASES)
+        .and_then(|v| v.as_str().map(str::to_string));
+
     Ok(Some(UsageRecord {
         ts_ms,
         model,
@@ -271,6 +318,9 @@ pub fn extract_record(line: &Value, ctx: &LineContext) -> Result<Option<UsageRec
         reasoning_tokens: pick_u64(usage, REASONING_ALIASES),
         cache_read_tokens: pick_u64(usage, CACHE_READ_ALIASES),
         cache_write_tokens: pick_u64(usage, CACHE_WRITE_ALIASES),
+        duration_ms: pick_u64(usage, DURATION_ALIASES),
+        ttft_ms: pick_u64(usage, TTFT_ALIASES),
+        status,
         source_file: ctx.source_file.clone(),
     }))
 }

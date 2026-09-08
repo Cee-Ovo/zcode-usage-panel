@@ -24,6 +24,7 @@ use crate::settings::{LauncherSettings, Settings};
 
 use super::antigravity::{self, InstallPaths, LocalTransport, UreqLocalTransport};
 use super::codex::CodexProvider;
+use super::dsh::DshProvider;
 use super::history::{HistoryHealth, QuotaHistory};
 use super::quota_alerts::{AlertEvent, AlertMemory, QuotaAlertEngine};
 use super::secrets::{
@@ -34,7 +35,7 @@ use super::volcengine::{self, UreqTransport};
 use super::zlauncher::{Launcher, PlatformProcOps};
 use super::{
     LocalUsage, ProviderSnapshot, ProviderStatus, QuotaWindow, TokenBreakdown,
-    PROVIDER_ANTIGRAVITY, PROVIDER_CODEX, PROVIDER_VOLCENGINE, PROVIDER_ZCODE,
+    PROVIDER_ANTIGRAVITY, PROVIDER_CODEX, PROVIDER_DSH, PROVIDER_VOLCENGINE, PROVIDER_ZCODE,
 };
 
 /// Aggregate ZCode card data computed from the monitoring engine (local,
@@ -63,6 +64,7 @@ pub enum HubMsg {
 pub struct HubInner {
     pub snapshots: HashMap<String, ProviderSnapshot>,
     pub codex: CodexProvider,
+    pub dsh: DshProvider,
     pub history: QuotaHistory,
     pub alert_memory: AlertMemory,
     pub alert_log: Vec<AlertEvent>,
@@ -110,10 +112,12 @@ impl ProviderHub {
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or_default();
         let codex = CodexProvider::new(cache_dir.as_ref().map(|d| d.join("codex-usage-cache.json")));
+        let dsh = DshProvider::new(cache_dir.as_ref().map(|d| d.join("dsh-usage-cache.json")));
         let launcher = Launcher::new(PlatformProcOps);
         let inner = HubInner {
             snapshots: HashMap::new(),
             codex,
+            dsh,
             history,
             alert_memory,
             alert_log: Vec::new(),
@@ -123,6 +127,7 @@ impl ProviderHub {
             next_due: [
                 PROVIDER_ZCODE,
                 PROVIDER_CODEX,
+                PROVIDER_DSH,
                 PROVIDER_ANTIGRAVITY,
                 PROVIDER_VOLCENGINE,
             ]
@@ -230,8 +235,14 @@ impl ProviderHub {
 
             let due: Vec<String> = {
                 let inner = self.inner.lock().unwrap();
-                [PROVIDER_ZCODE, PROVIDER_CODEX, PROVIDER_ANTIGRAVITY, PROVIDER_VOLCENGINE]
-                    .into_iter()
+                [
+                    PROVIDER_ZCODE,
+                    PROVIDER_CODEX,
+                    PROVIDER_DSH,
+                    PROVIDER_ANTIGRAVITY,
+                    PROVIDER_VOLCENGINE,
+                ]
+                .into_iter()
                     .filter(|id| {
                         let due_at = inner.next_due.get(*id).copied().unwrap_or(0);
                         let forced = match &force {
@@ -255,6 +266,7 @@ impl ProviderHub {
                     let failures = inner.failures.get(id).copied().unwrap_or(0);
                     let base = match id.as_str() {
                         PROVIDER_CODEX => settings.providers.codex_refresh_ms,
+                        PROVIDER_DSH => settings.providers.dsh_refresh_ms,
                         PROVIDER_ANTIGRAVITY => settings.providers.antigravity_refresh_ms,
                         PROVIDER_VOLCENGINE => settings.providers.volcengine_refresh_ms,
                         _ => 30_000,
@@ -309,6 +321,24 @@ impl ProviderHub {
                         .unwrap_or_else(super::codex::default_home);
                     inner.codex.with_home(home);
                     Some(inner.codex.poll(now))
+                }
+            }
+            PROVIDER_DSH => {
+                if !settings.providers.dsh_enabled {
+                    let mut s = ProviderSnapshot::empty(id, ProviderStatus::Disabled, now);
+                    s.source = "已在本软件设置中禁用".into();
+                    Some(s)
+                } else {
+                    let mut inner = self.inner.lock().unwrap();
+                    let home = settings
+                        .providers
+                        .dsh_home
+                        .as_ref()
+                        .filter(|s| !s.is_empty())
+                        .map(std::path::PathBuf::from)
+                        .unwrap_or_else(super::dsh::default_home);
+                    inner.dsh.with_home(home);
+                    Some(inner.dsh.poll(now))
                 }
             }
             PROVIDER_ANTIGRAVITY => {
@@ -421,6 +451,7 @@ impl ProviderHub {
                 let mut inner = self.inner.lock().unwrap();
                 let interval = match id {
                     PROVIDER_CODEX => settings.providers.codex_refresh_ms,
+                    PROVIDER_DSH => settings.providers.dsh_refresh_ms,
                     PROVIDER_ANTIGRAVITY => settings.providers.antigravity_refresh_ms,
                     PROVIDER_VOLCENGINE => settings.providers.volcengine_refresh_ms,
                     _ => 30_000,
@@ -558,8 +589,9 @@ impl ProviderHub {
         v.sort_by_key(|s| match s.provider.as_str() {
             PROVIDER_ZCODE => 0,
             PROVIDER_CODEX => 1,
-            PROVIDER_ANTIGRAVITY => 2,
-            _ => 3,
+            PROVIDER_DSH => 2,
+            PROVIDER_ANTIGRAVITY => 3,
+            _ => 4,
         });
         v
     }
@@ -705,7 +737,7 @@ mod tests {
         let (hub, rx) = ProviderHub::new(Some(dir.path().to_path_buf()), "test");
         drop(rx);
         let inner = hub.inner.lock().unwrap();
-        assert_eq!(inner.next_due.len(), 4);
+        assert_eq!(inner.next_due.len(), 5);
         assert!(inner.history.schema_version() >= 1);
     }
 

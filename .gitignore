@@ -21,6 +21,7 @@ portable
 *.sqlite-shm
 boot-snapshot.json
 codex-usage-cache.json
+dsh-usage-cache.json
 quota-history.sqlite
 alert-memory.json
 settings.json

@@ -112,6 +112,10 @@ pub struct ProviderSettings {
     /// Override for the Codex CLI data dir (`~/.codex` by default).
     pub codex_home: Option<String>,
     pub codex_refresh_ms: u64,
+    pub dsh_enabled: bool,
+    /// Override for the DeepSeek Harness data dir (`~/.dsh` by default).
+    pub dsh_home: Option<String>,
+    pub dsh_refresh_ms: u64,
     pub antigravity_enabled: bool,
     pub antigravity_refresh_ms: u64,
     pub volcengine_enabled: bool,
@@ -127,6 +131,9 @@ impl Default for ProviderSettings {
             codex_enabled: true,
             codex_home: None,
             codex_refresh_ms: crate::providers::cadence::CODEX_MS,
+            dsh_enabled: true,
+            dsh_home: None,
+            dsh_refresh_ms: crate::providers::cadence::DSH_MS,
             antigravity_enabled: true,
             antigravity_refresh_ms: crate::providers::cadence::ANTIGRAVITY_MS,
             volcengine_enabled: true,

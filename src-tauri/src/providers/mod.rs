@@ -19,8 +19,10 @@
 
 pub mod antigravity;
 pub mod codex;
+pub mod dsh;
 pub mod history;
 pub mod hub;
+pub mod local_usage;
 pub mod quota_alerts;
 pub mod secrets;
 pub mod volcengine;
@@ -33,6 +35,7 @@ pub use crate::engine::now_ms;
 
 pub const PROVIDER_ZCODE: &str = "zcode";
 pub const PROVIDER_CODEX: &str = "codex";
+pub const PROVIDER_DSH: &str = "dsh";
 pub const PROVIDER_ANTIGRAVITY: &str = "antigravity";
 pub const PROVIDER_VOLCENGINE: &str = "volcengine";
 
@@ -306,6 +309,7 @@ impl ProviderSnapshot {
 /// Default poll cadences (ms). All are user-tunable in settings.
 pub mod cadence {
     pub const CODEX_MS: u64 = 60_000;
+    pub const DSH_MS: u64 = 60_000;
     pub const ANTIGRAVITY_MS: u64 = 120_000;
     pub const VOLCENGINE_MS: u64 = 1_800_000;
 }

@@ -51,6 +51,7 @@ windows = { version = "0.58", features = [
     "Win32_Security",
     "Win32_Storage_FileSystem",
 ] }
+zstd = "0.13"
 
 [dev-dependencies]
 tempfile = "3"

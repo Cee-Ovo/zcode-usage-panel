@@ -502,7 +502,7 @@ function SpeedCard({ speed }: { speed: SpeedStats | undefined }) {
       label="响应速度"
       value={
         available ? (
-          <span style={{ whiteSpace: "nowrap" }}>
+          <span>
             {hasSamples ? formatLatency(speed!.ttftAvgMs) : "—"}
             <span className="muted" style={{ fontWeight: 400 }}> · </span>
             {formatTps(speed!.speedTps)}

@@ -31,6 +31,7 @@ const SECTIONS = [
   ["general", "通用"],
   ["zcode", "ZCode"],
   ["codex", "Codex"],
+  ["dsh", "DSH"],
   ["antigravity", "Antigravity"],
   ["volcengine", "火山引擎"],
   ["pricing", "API Pricing"],
@@ -325,6 +326,54 @@ export function SettingsPage() {
         />
         <div className="desc">
           本地 Harness Token 统计(Input / Cached / Output / Reasoning)与官方套餐额度分开显示,绝不合并。
+        </div>
+      </Glass>
+
+      {/* ---------------- DSH (DeepSeek Harness) ---------------- */}
+      <Glass as="section" className="panel settings-section sample-glass" material="regular" renderer="css" interactive={false} id="sec-dsh">
+        <div className="panel-title">
+          DeepSeek Harness(DSH)
+          <span className="badge-note">本地 session 日志统计 · 离线读取</span>
+        </div>
+        <div className="switch-row">
+          <div>
+            <div>启用 DSH 本地 Token 监控</div>
+            <div className="desc">
+              读取 {`<用户目录>/.dsh/sessions`} 的 session 日志(raw 或 zstd 压缩 JSONL);统计各时间范围的
+              Input / Cached / Output / Reasoning Token,不计入 ZCode 总 Token(离线,不联网)
+            </div>
+          </div>
+          <Switch
+            label={null}
+            aria-label="启用 DSH"
+            checked={draft.providers.dshEnabled}
+            onCheckedChange={(v) => prov({ dshEnabled: v })}
+          />
+        </div>
+        <div className="switch-row">
+          <div>
+            <div>DSH 数据目录覆盖</div>
+            <div className="desc">
+              留空使用默认 {`<用户目录>/.dsh`} 或 DSH_HOME 环境变量;未安装 DSH 时这里会显示「未检测到数据目录」
+            </div>
+          </div>
+        </div>
+        <TextField
+          label={null}
+          value={draft.providers.dshHome ?? ""}
+          onChange={(e) => prov({ dshHome: e.target.value === "" ? null : e.target.value })}
+          placeholder="D:\\dsh-data"
+        />
+        <IntervalRow
+          label="本地统计刷新间隔"
+          value={draft.providers.dshRefreshMs}
+          onChange={(v) => prov({ dshRefreshMs: v })}
+          min={30}
+          max={3600}
+        />
+        <div className="desc">
+          口径:usage 来自 session 日志中的 assistant 消息;reasoning 已包含在 Output 中,总量不重复累计。
+          DSH 日志没有可核实的单价与首 token 时间字段,分区不展示金额和速度指标。
         </div>
       </Glass>
 

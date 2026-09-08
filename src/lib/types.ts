@@ -221,6 +221,9 @@ export interface ProviderSettings {
   codexEnabled: boolean;
   codexHome: string | null;
   codexRefreshMs: number;
+  dshEnabled: boolean;
+  dshHome: string | null;
+  dshRefreshMs: number;
   antigravityEnabled: boolean;
   antigravityRefreshMs: number;
   volcengineEnabled: boolean;
@@ -486,6 +489,7 @@ export interface CredentialsStatusDto {
 export const PROVIDER_LABELS: Record<string, string> = {
   zcode: "ZCode",
   codex: "Codex",
+  dsh: "DSH",
   antigravity: "Antigravity",
   volcengine: "火山引擎",
 };

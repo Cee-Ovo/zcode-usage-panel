@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Glass, SegmentedControl, Button } from "open-glass-ui";
 import { AnimatePresence, motion } from "motion/react";
 import { AnimatedNumber } from "../components/AnimatedNumber";
-import { CodexUsagePanel } from "../components/CodexUsagePanel";
+import { LiquidSegmentedControl } from "../components/LiquidSegmentedControl";
+import { LocalUsagePanel } from "../components/LocalUsagePanel";
 import { CostDetailModal } from "../components/CostDetailModal";
 import { MetricCard, InfoDot } from "../components/MetricCard";
 import { QuotaSection } from "../components/QuotaSection";
@@ -26,7 +27,43 @@ import {
 const HIT_HINT =
   "Cache Hit Rate = cached input ÷ total input(逐条记录自动判定口径:inclusive schema 用 cached/input;exclusive schema 用 cache_read ÷ (input+cache_read+cache_write))。无 cache 字段的数据不计入,显示 unavailable。";
 const TOTAL_HINT =
-  "ZCode 总 Token = Input + Output + Reasoning + Cache(读+写),仅统计 ZCode 本地 usage 记录;\n与下方 Codex 本地 Token、服务额度区的官方套餐额度分开统计,互不计入。";
+  "ZCode 总 Token = Input + Output + Reasoning + Cache(读+写),仅统计 ZCode 本地 usage 记录;\n与 Codex 本地 Token、DSH 本地 Token、服务额度区的官方套餐额度分开统计,互不计入。";
+
+// ---- 三分区(数据源分区)定义 --------------------------------------------------
+
+type SectionKey = "zcode" | "codex" | "dsh";
+
+const SECTION_KEYS: SectionKey[] = ["zcode", "codex", "dsh"];
+
+const SECTION_LABELS: Record<SectionKey, string> = {
+  zcode: "ZCode",
+  codex: "Codex",
+  dsh: "DSH",
+};
+
+const SECTION_SUBTITLES: Record<SectionKey, string> = {
+  zcode: "本地 usage 记录 · API 等价花费为官方单价估算",
+  codex: "Codex 客户端 session 日志统计 · 不计入 ZCode 总 Token",
+  dsh: "DeepSeek Harness session 日志统计 · 不计入 ZCode 总 Token",
+};
+
+const CODEX_EXPLAIN =
+  "Codex Token = 本地 Codex 客户端 session 日志中提供的 total_tokens 原值;Cached / Cache Write 作为分项展示,不会重复加到总量中。\n" +
+  "它与「ZCode 总 Token」分开统计、互不计入;与服务额度区的 Codex 官方套餐额度(5 小时/周 rate_limits)也是两个独立指标。\n" +
+  "本地 Token 统计 ≠ 官方剩余额度 ≠ 实际 Billing。";
+
+const DSH_EXPLAIN =
+  "DSH Token = DeepSeek Harness 本地 session 日志中 assistant 消息的 usage 统计:inputTokens 为未缓存输入,cacheRead / cacheWrite 单列;reasoning 已包含在 Output 中,总量不重复累计。\n" +
+  "它与「ZCode 总 Token」「Codex 本地 Token」分开统计、互不计入。\n" +
+  "本地 Token 统计 ≠ 实际 Billing;DSH 分区不展示金额与速度指标(日志中无对应可核实字段)。";
+
+function readStoredSection(): SectionKey {
+  try {
+    const value = localStorage.getItem("zup.section");
+    if (value && (SECTION_KEYS as string[]).includes(value)) return value as SectionKey;
+  } catch { /* optional preference */ }
+  return "zcode";
+}
 
 export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) => void }) {
   const dash = useStore((s) => s.dash);
@@ -36,6 +73,7 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
   const costSummary = useStore((s) => s.costSummary);
   const alerts = useStore((s) => s.alerts);
   const [expanded, setExpanded] = useState(false);
+  const [section, setSection] = useState<SectionKey>(readStoredSection);
   const [compact, setCompact] = useState(() => {
     try { return localStorage.getItem("zup.compact") === "true"; } catch { return false; }
   });
@@ -124,8 +162,35 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
         </span>
       </div>
 
-      {/* core metrics (ZCode only — Codex local tokens get their own panel
-          below; official plan quotas live in the quota section) */}
+      {/* section switcher: ZCode / Codex / DSH 数据源分区 */}
+      <div className="dashboard-sections" role="tablist" aria-label="数据源分区">
+        <LiquidSegmentedControl
+          aria-label="数据源分区"
+          className="dashboard-section-tabs"
+          value={section}
+          onValueChange={(v) => {
+            setSection(v);
+            try { localStorage.setItem("zup.section", v); } catch { /* optional preference */ }
+          }}
+          items={SECTION_KEYS.map((k) => ({ value: k, label: SECTION_LABELS[k] }))}
+        />
+        <span className="muted dashboard-section-subtitle">
+          {SECTION_SUBTITLES[section]}
+        </span>
+      </div>
+
+      <AnimatePresence mode="wait" initial={false}>
+        {section === "zcode" ? (
+          <motion.div
+            key="section-zcode"
+            className="dashboard-section"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+          >
+      {/* core metrics (ZCode only — Codex / DSH local tokens get their own
+          sections; official plan quotas live in the quota section) */}
       <motion.div
         key={rangeKey}
         className={`zup-grid metrics-grid dashboard-metrics${compact ? " is-compact" : ""}`}
@@ -237,11 +302,6 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
       </motion.div>
 
       {/* Codex 本地 Token(独立于 ZCode 指标与官方额度) */}
-      <CodexUsagePanel />
-
-      {/* AI service quotas (Codex / Antigravity / Volcengine + ZCode card) */}
-      <QuotaSection />
-
       {/* top models */}
       <Glass className="panel sample-glass" material="regular" renderer="css">
         <div className="panel-title">
@@ -355,6 +415,53 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
         </div>
         <TrendChart trend={trend} visibleModels={visibleModels} />
       </Glass>
+          </motion.div>
+        ) : section === "codex" ? (
+          <motion.div
+            key="section-codex"
+            className="dashboard-section"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <LocalUsagePanel
+              provider="codex"
+              title="Codex 本地 Token 用量"
+              subtitle="session 日志统计 · 不计入 ZCode 总 Token"
+              explain={CODEX_EXPLAIN}
+              modelSource="codex"
+              notEnabledHint="在「设置 → Codex」中开启后,这里会显示本地 session 日志统计。"
+              footnote="来自本地 Codex session 日志 · 与官方套餐额度(5 小时/周)分开统计 · 不等于实际 Billing · 不计入 ZCode 总 Token"
+              detailTitle="查看 Codex 详情(官方额度 / 模型明细)"
+            />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="section-dsh"
+            className="dashboard-section"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <LocalUsagePanel
+              provider="dsh"
+              title="DSH 本地 Token 用量"
+              subtitle="DeepSeek Harness session 日志 · 不计入 ZCode 总 Token"
+              explain={DSH_EXPLAIN}
+              modelSource="dsh"
+              notEnabledHint="在「设置 → DSH」中开启后,这里会显示 DeepSeek Harness 本地 session 日志统计。"
+              footnote="来自本地 DSH session 日志 · 不等于实际 Billing · 不计入 ZCode 总 Token · 未找到日志时可在「设置 → DSH」指定路径"
+              detailTitle="查看 DSH 详情(模型明细)"
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* AI service quotas (Codex / Antigravity / Volcengine + ZCode card) */}
+      <QuotaSection />
+
 
       <AnimatePresence>
         {costModalModel && (

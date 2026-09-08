@@ -106,6 +106,76 @@ const mockCodexRanges: LocalUsageRange[] = [
   { key: "all", breakdown: codexAll, sessions: 132, models: mockCodexModels(codexAll) },
 ];
 
+// ---- DSH (DeepSeek Harness) 模拟数据 -----------------------------------------
+// `?dsh=missing` 把 DSH 快照切换为「未找到数据目录」空态,用于截图验收。
+
+const dshToday: TokenBreakdown = {
+  requests: 64,
+  inputTokens: 1_180_000,
+  cachedInputTokens: 720_000,
+  cacheWriteTokens: 52_000,
+  outputTokens: 168_000,
+  reasoningTokens: 96_400,
+  totalTokens: 2_120_000,
+};
+
+const dsh7d: TokenBreakdown = {
+  requests: 388,
+  inputTokens: 6_640_000,
+  cachedInputTokens: 4_310_000,
+  cacheWriteTokens: 288_000,
+  outputTokens: 902_000,
+  reasoningTokens: 512_300,
+  totalTokens: 12_140_000,
+};
+
+const dshAll: TokenBreakdown = {
+  requests: 1_460,
+  inputTokens: 24_900_000,
+  cachedInputTokens: 16_800_000,
+  cacheWriteTokens: 1_120_000,
+  outputTokens: 3_360_000,
+  reasoningTokens: 1_902_000,
+  totalTokens: 47_380_000,
+};
+
+const mockDshModels = (breakdown: TokenBreakdown): ModelUsageRow[] => [
+  { model: "deepseek-chat", breakdown: scaleCodexBreakdown(breakdown, 0.61) },
+  { model: "deepseek-reasoner", breakdown: scaleCodexBreakdown(breakdown, 0.39) },
+];
+
+const mockDshRanges: LocalUsageRange[] = [
+  { key: "today", breakdown: dshToday, sessions: 7, models: mockDshModels(dshToday) },
+  {
+    key: "60m",
+    breakdown: scaleCodexBreakdown(dshToday, 0.12),
+    sessions: 1,
+    models: mockDshModels(scaleCodexBreakdown(dshToday, 0.12)),
+  },
+  {
+    key: "24h",
+    breakdown: scaleCodexBreakdown(dshToday, 1.34),
+    sessions: 9,
+    models: mockDshModels(scaleCodexBreakdown(dshToday, 1.34)),
+  },
+  { key: "7d", breakdown: dsh7d, sessions: 31, models: mockDshModels(dsh7d) },
+  {
+    key: "30d",
+    breakdown: scaleCodexBreakdown(dshAll, 0.47),
+    sessions: 58,
+    models: mockDshModels(scaleCodexBreakdown(dshAll, 0.47)),
+  },
+  { key: "all", breakdown: dshAll, sessions: 96, models: mockDshModels(dshAll) },
+];
+
+const dshMissing = (() => {
+  try {
+    return new URLSearchParams(window.location.search).get("dsh") === "missing";
+  } catch {
+    return false;
+  }
+})();
+
 export const mockState: Partial<AppState> = {
   ready: true,
   version: "1.2.0-dev",
@@ -304,6 +374,35 @@ export const mockState: Partial<AppState> = {
       nextPollMs: now + 120_000,
     },
     {
+      provider: "dsh",
+      status: "ok",
+      account: null,
+      planName: null,
+      windows: [],
+      packages: [],
+      localUsage: dshMissing
+        ? null
+        : {
+            today: dshToday,
+            last7d: dsh7d,
+            allTime: dshAll,
+            sessions: 96,
+            models: mockDshModels(dshAll),
+            ranges: mockDshRanges,
+          },
+      launcher: null,
+      source: "DeepSeek Harness 本地 session 日志(离线读取)",
+      sourceUrl: "https://www.deepseek.com/harness/",
+      notes: dshMissing
+        ? []
+        : ["reasoning 已含在 Output 中,总量不重复累计。", "session 日志统计 · 不计入 ZCode 总 Token"],
+      error: dshMissing
+        ? "未检测到 DeepSeek Harness 数据目录(默认 ~/.dsh;可在「设置 → DSH」指定路径)"
+        : null,
+      updatedAtMs: now - 18_000,
+      nextPollMs: now + 60_000,
+    },
+    {
       provider: "antigravity",
       status: "not_configured",
       account: null,
@@ -353,6 +452,9 @@ export const mockState: Partial<AppState> = {
       codexEnabled: true,
       codexHome: null,
       codexRefreshMs: 300_000,
+      dshEnabled: true,
+      dshHome: null,
+      dshRefreshMs: 300_000,
       antigravityEnabled: true,
       antigravityRefreshMs: 600_000,
       volcengineEnabled: false,

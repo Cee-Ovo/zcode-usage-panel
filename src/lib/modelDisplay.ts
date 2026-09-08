@@ -3,19 +3,26 @@
  *
  * IMPORTANT: this is presentation-only. Raw model names must keep flowing
  * untouched into queries, IPC calls, Map keys, cost lookups and the store —
- * the (Codex) suffix exists purely so users can see where a model's numbers
- * came from. Only call with `source: "codex"` when the data provably
- * originates from the Codex provider snapshot (localUsage / its model rows);
+ * the source badge exists purely so users can see where a model's numbers
+ * came from. Only call with a matching `source` when the data provably
+ * originates from that provider snapshot (localUsage / its model rows);
  * never guess from the model name itself.
  */
 
 export const CODEX_BADGE = "（Codex）";
+export const DSH_BADGE = "（DSH）";
 
-export type ModelSource = "codex" | "zcode" | null;
+export type ModelSource = "codex" | "dsh" | "zcode" | null;
 
-/** Append the (Codex) badge for Codex-sourced models; idempotent. */
+const BADGES: Partial<Record<Exclude<ModelSource, null>, string>> = {
+  codex: CODEX_BADGE,
+  dsh: DSH_BADGE,
+};
+
+/** Append the source badge for provider-sourced models; idempotent. */
 export function displayModelName(name: string, source: ModelSource = null): string {
-  if (source !== "codex") return name;
-  if (name.endsWith(CODEX_BADGE)) return name;
-  return `${name}${CODEX_BADGE}`;
+  const badge = source ? BADGES[source] : undefined;
+  if (!badge) return name;
+  if (name.endsWith(badge)) return name;
+  return `${name}${badge}`;
 }

@@ -11,6 +11,12 @@ rust-version = "1.77"
 name = "zcode_usage_panel_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# Without this feature the binary loads build.devUrl (vite dev server) instead
+# of the embedded frontendDist assets, so plain `cargo build` output shows
+# ERR_CONNECTION_REFUSED when launched standalone.
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 embed-resource = "3"
@@ -48,6 +54,11 @@ windows = { version = "0.58", features = [
 
 [dev-dependencies]
 tempfile = "3"
+
+[profile.dev]
+# Keep file/line backtraces without full variable/type debug information.
+# The test profile inherits this; retain incremental compilation for iteration.
+debug = "line-tables-only"
 
 [profile.release]
 lto = "thin"

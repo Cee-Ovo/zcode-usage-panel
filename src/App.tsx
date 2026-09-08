@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Glass, GlassSystemProvider, OrganicFilterDefinition, Switch } from "open-glass-ui";
 import { AnimatePresence, LayoutGroup, MotionConfig, motion } from "motion/react";
 import { api, onEvent } from "./lib/ipc";
@@ -272,6 +272,7 @@ export function App() {
           whileTap={{ scale: 0.965 }}
           transition={softSpring}
           className={`zup-nav-item ${page === id ? "active" : ""}`}
+          aria-current={page === id ? "page" : undefined}
           onClick={() => {
             store.set({ page: id });
             if (id === "sessions") {
@@ -306,7 +307,25 @@ export function App() {
     [page],
   );
 
-  const NavigationSurface = page === "dashboard" ? Glass : "nav";
+  // Keep the navigation rail and ambient material consistent while switching
+  // between pages. The page content still owns its data/layout; this flag only
+  // controls the shared shell treatment.
+  const floatingSidebar = true;
+  const SidebarGroup = floatingSidebar ? Glass : "div";
+  const NavigationGroup = floatingSidebar ? Glass : Fragment;
+  const sidebarMaterial = floatingSidebar
+    ? { material: "regular" as const, renderer: "css" as const, interactive: false }
+    : {};
+  const monitoringSwitch = <Switch
+    label={null}
+    aria-label="实时监控开关"
+    checked={!paused}
+    onCheckedChange={(v) => {
+      const s = store.get().settings;
+      if (s) api.saveSettings({ ...s, monitoringPaused: !v }).catch(() => {});
+    }}
+  />;
+  const monitoringError = !!(update?.error || refresh.error || initializationError);
   return (
     <MotionConfig reducedMotion="user">
       <GlassSystemProvider
@@ -323,7 +342,7 @@ export function App() {
           seed={4}
           animate={false}
         />
-        <div className={`zup-shell zup-frame${page === "dashboard" ? " frosted-sample" : ""}`}>
+        <div className="zup-shell zup-frame frosted-sample">
           <div className="liquid-ambient" aria-hidden>
             <span className="liquid-ambient__orb liquid-ambient__orb--blue" />
             <span className="liquid-ambient__orb liquid-ambient__orb--cyan" />
@@ -333,18 +352,24 @@ export function App() {
           <WindowFrame />
           <TitleBar title="ZCode Usage Panel" onRefresh={refreshAll} />
           <div className="zup-body">
-            <NavigationSurface className="zup-nav"
-              {...(page === "dashboard" ? { as: "nav" as const, material: "regular" as const, renderer: "css" as const, interactive: false } : {})}>
+            <nav className="zup-nav">
+              <NavigationGroup {...(floatingSidebar ? { className: "sidebar-navigation", ...sidebarMaterial } : {})}>
               <div className="nav-section-label">工作空间</div>
               <LayoutGroup id="primary-navigation">{nav}</LayoutGroup>
-              <div className="footnote">
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              </NavigationGroup>
+              <SidebarGroup className="footnote sidebar-status" {...sidebarMaterial}>
+                <div className="sidebar-status-heading" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span className="sidebar-status-label">
                   <span
-                    className={`status-dot ${paused || suspended ? "paused" : update?.error ? "error" : "live"}`}
+                    className={`status-dot ${paused || suspended ? "paused" : monitoringError ? "error" : "live"}`}
                   />
-                  {paused ? "已暂停监控" : suspended ? "窗口隐藏·挂起监控" : "实时监控中"}
+                  {floatingSidebar
+                    ? paused ? "已暂停" : suspended ? "已挂起" : monitoringError ? "刷新异常" : "监控中"
+                    : paused ? "已暂停监控" : suspended ? "窗口隐藏·挂起监控" : "实时监控中"}
+                  </span>
+                  {floatingSidebar && monitoringSwitch}
                 </div>
-                {update?.lastRefreshMs ? (
+                {!floatingSidebar && update?.lastRefreshMs ? (
                   <div>更新 {formatClock(update.lastRefreshMs)}</div>
                 ) : null}
                 {update?.restoredFromCache && <div>显示缓存统计,同步中…</div>}
@@ -379,20 +404,19 @@ export function App() {
                   <div>最近成功 {formatClock(refresh.lastSuccessMs)}</div>
                 )}
                 <HistoryHealthStatus />
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                {floatingSidebar && <details className="sidebar-diagnostics">
+                  <summary>运行详情</summary>
+                  <div>{update?.lastRefreshMs ? `最近刷新尝试 ${formatClock(update.lastRefreshMs)}` : "暂无刷新记录"}</div>
+                </details>}
+                {floatingSidebar && update?.error && !refresh.error && !initializationError && <div role="alert">
+                  数据源刷新异常 <button type="button" onClick={retryRefresh}>重试</button>
+                </div>}
+                {!floatingSidebar && <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
                   <span>实时</span>
-                  <Switch
-                    label={null}
-                    aria-label="实时监控开关"
-                    checked={!paused}
-                    onCheckedChange={(v) => {
-                      const s = store.get().settings;
-                      if (s) api.saveSettings({ ...s, monitoringPaused: !v }).catch(() => {});
-                    }}
-                  />
-                </div>
-              </div>
-            </NavigationSurface>
+                  {monitoringSwitch}
+                </div>}
+              </SidebarGroup>
+            </nav>
             <main className="zup-content">
               <AnimatePresence mode="wait" initial={false}>
                 <motion.div

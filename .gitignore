@@ -5,8 +5,9 @@ src-tauri/target
 src-tauri/gen
 .vite
 coverage
-output/playwright/
+.npm-cache-playwright/
 .playwright-cli/
+output/
 
 # local artifacts & release output (builds produce into dist/releases)
 *.log

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { Glass } from "open-glass-ui";
 import { AnimatedNumber } from "../components/AnimatedNumber";
 import { MetricCard } from "../components/MetricCard";
 import { TrendChart } from "../components/TrendChart";
@@ -23,8 +24,15 @@ export function ModelsPage() {
   if (!dash) return <div className="empty-state">加载中…</div>;
 
   return (
-    <div style={{ paddingTop: 6 }}>
-      <div className="panel">
+    <div className="models-page" style={{ paddingTop: 6 }}>
+      <header className="page-heading page-heading--compact">
+        <div>
+          <span className="page-eyebrow">MODEL BREAKDOWN</span>
+          <h1>模型</h1>
+          <p>按模型查看 Token 构成、占比与估算花费。</p>
+        </div>
+      </header>
+      <Glass className="panel sample-glass page-surface models-surface" material="regular" renderer="css" interactive={false}>
         <div className="panel-title">全部模型(当前时间范围)</div>
         {dash.models.length === 0 && <div className="empty-state">该范围内没有模型调用</div>}
         <AnimatePresence initial={false}>
@@ -87,7 +95,7 @@ export function ModelsPage() {
             </motion.div>
           ))}
         </AnimatePresence>
-      </div>
+      </Glass>
 
       <AnimatePresence>
         {detail && <ModelDetailCard key={detail.name} detail={detail} />}
@@ -107,7 +115,7 @@ function ModelDetailCard({ detail }: { detail: ModelDetailDto }) {
     detail.allTime.input + detail.allTime.output + detail.allTime.reasoning.sum || 1;
 
   return (
-    <AccessibleDialog label={`模型详情 · ${detail.name}`} onClose={() => store.set({ modelDetail: null })}>
+    <AccessibleDialog label={`模型详情 · ${detail.name}`} onClose={() => store.set({ modelDetail: null })} glass>
         <div className="panel-title">
           模型详情 · {detail.name}
           <span className="right">
@@ -116,18 +124,22 @@ function ModelDetailCard({ detail }: { detail: ModelDetailDto }) {
         </div>
         <div className="zup-grid metrics-grid" style={{ marginBottom: 12 }}>
           <MetricCard
+            glass
             label="今天"
             value={<AnimatedNumber value={totalTokens(detail.today)} format={formatTokens} />}
           />
           <MetricCard
+            glass
             label="7 天"
             value={<AnimatedNumber value={totalTokens(detail.last7d)} format={formatTokens} />}
           />
           <MetricCard
+            glass
             label="30 天"
             value={<AnimatedNumber value={totalTokens(detail.last30d)} format={formatTokens} />}
           />
           <MetricCard
+            glass
             label="请求次数"
             value={<AnimatedNumber value={detail.allTime.requests} format={formatFull} />}
             sub={`平均每请求 ${formatTokens(detail.avgTokensPerRequest)} tokens`}

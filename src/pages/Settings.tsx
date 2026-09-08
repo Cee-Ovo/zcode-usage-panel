@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import { SegmentedControl, Switch, TextField } from "open-glass-ui";
+import { Glass, SegmentedControl, Switch, TextField } from "open-glass-ui";
 import { motion } from "motion/react";
 import { api } from "../lib/ipc";
 import { FxButton, useAction } from "../components/fx";
@@ -77,6 +77,22 @@ export function SettingsPage() {
     { okText: "检测完成" },
   );
 
+  // Scrim only once the heading actually sticks; transparent at rest like the
+  // dashboard heading. Re-runs once the draft loads because the toolbar only
+  // renders after the early-return branch clears.
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [toolbarStuck, setToolbarStuck] = useState(false);
+  const hasDraft = draft !== null;
+  useEffect(() => {
+    if (!hasDraft) return;
+    const scroller = toolbarRef.current?.closest(".zup-content");
+    if (!scroller) return;
+    const onScroll = () => setToolbarStuck(scroller.scrollTop > 2);
+    onScroll();
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    return () => scroller.removeEventListener("scroll", onScroll);
+  }, [hasDraft]);
+
   if (!draft) return <div className="empty-state">加载设置…</div>;
 
   const set = (patch: Partial<Settings>) => setDraft({ ...draft, ...patch });
@@ -99,8 +115,10 @@ export function SettingsPage() {
   };
 
   return (
-    <div style={{ paddingTop: 6, maxWidth: 860 }}>
+    <div className="settings-page" style={{ paddingTop: 6, maxWidth: 860 }}>
       <div
+        ref={toolbarRef}
+        className={`page-heading settings-toolbar${toolbarStuck ? " is-stuck" : ""}`}
         style={{
           position: "sticky",
           top: 0,
@@ -108,16 +126,17 @@ export function SettingsPage() {
           display: "flex",
           alignItems: "center",
           gap: 10,
-          padding: "8px 0",
-          backdropFilter: "blur(12px)",
+          padding: "8px 0 12px",
         }}
       >
-        <strong style={{ fontSize: 13 }}>设置</strong>
-        <span style={{ marginLeft: "auto" }} />
+        <div>
+          <span className="page-eyebrow">SETTINGS</span>
+          <h1>设置</h1>
+          <p>管理数据源、额度监控与应用行为。</p>
+        </div>
         <FxButton
-          variant="primary"
+          variant="quiet"
           size="small"
-          magnetic
           action={save}
           busyLabel="保存中…"
           okText="已保存"
@@ -140,7 +159,7 @@ export function SettingsPage() {
       </div>
 
       {/* ---------------- 通用 General ---------------- */}
-      <section className="panel settings-section" id="sec-general">
+      <Glass as="section" className="panel settings-section sample-glass" material="regular" renderer="css" interactive={false} id="sec-general">
         <div className="panel-title">通用</div>
         <div className="switch-row">
           <div>
@@ -191,10 +210,10 @@ export function SettingsPage() {
             style={{ width: 90, textAlign: "right" }}
           />
         </div>
-      </section>
+      </Glass>
 
       {/* ---------------- ZCode ---------------- */}
-      <section className="panel settings-section" id="sec-zcode">
+      <Glass as="section" className="panel settings-section sample-glass" material="regular" renderer="css" interactive={false} id="sec-zcode">
         <div className="panel-title">ZCode(数据源与快速启动)</div>
         <div className="switch-row">
           <div>
@@ -263,10 +282,10 @@ export function SettingsPage() {
           </FxButton>
         </div>
         {diag && <DiagnosePanel diag={diag} />}
-      </section>
+      </Glass>
 
       {/* ---------------- Codex ---------------- */}
-      <section className="panel settings-section" id="sec-codex">
+      <Glass as="section" className="panel settings-section sample-glass" material="regular" renderer="css" interactive={false} id="sec-codex">
         <div className="panel-title">
           OpenAI Codex
           <span className="badge-note">额度来自 Codex 官方客户端本地数据</span>
@@ -307,10 +326,10 @@ export function SettingsPage() {
         <div className="desc">
           本地 Harness Token 统计(Input / Cached / Output / Reasoning)与官方套餐额度分开显示,绝不合并。
         </div>
-      </section>
+      </Glass>
 
       {/* ---------------- Antigravity ---------------- */}
-      <section className="panel settings-section" id="sec-antigravity">
+      <Glass as="section" className="panel settings-section sample-glass" material="regular" renderer="css" interactive={false} id="sec-antigravity">
         <div className="panel-title">
           Antigravity / 反重力
           <span className="badge-note">本地官方客户端 RPC · 仅 127.0.0.1</span>
@@ -339,10 +358,10 @@ export function SettingsPage() {
         <div className="desc">
           Antigravity 无公开远程额度 API;数据完全来自本机官方守护进程,失败时自动降级为 unavailable,不猜测。
         </div>
-      </section>
+      </Glass>
 
       {/* ---------------- 火山引擎 ---------------- */}
-      <section className="panel settings-section" id="sec-volcengine">
+      <Glass as="section" className="panel settings-section sample-glass" material="regular" renderer="css" interactive={false} id="sec-volcengine">
         <div className="panel-title">
           火山引擎 Token 包
           <span className="badge-note">官方费用中心 OpenAPI</span>
@@ -390,10 +409,10 @@ export function SettingsPage() {
           max={86400}
         />
         <VolcengineCredentials />
-      </section>
+      </Glass>
 
       {/* ---------------- API pricing ---------------- */}
-      <section className="panel settings-section" id="sec-pricing">
+      <Glass as="section" className="panel settings-section sample-glass" material="regular" renderer="css" interactive={false} id="sec-pricing">
         <div className="panel-title">
           API 价格表
           <span className="badge-note">按官方 API 单价估算 · 非实际 Billing</span>
@@ -408,10 +427,10 @@ export function SettingsPage() {
           expandedModel={expandedModel}
           setExpandedModel={setExpandedModel}
         />
-      </section>
+      </Glass>
 
       {/* ---------------- 通知 ---------------- */}
-      <section className="panel settings-section" id="sec-notifications">
+      <Glass as="section" className="panel settings-section sample-glass" material="regular" renderer="css" interactive={false} id="sec-notifications">
         <div className="panel-title">通知(本地 Windows 通知)</div>
 
         <div className="panel-title" style={{ fontSize: 12, marginTop: 2 }}>
@@ -522,10 +541,10 @@ export function SettingsPage() {
             />
           </div>
         ))}
-      </section>
+      </Glass>
 
       {/* ---------------- 外观 ---------------- */}
-      <section className="panel settings-section" id="sec-appearance">
+      <Glass as="section" className="panel settings-section sample-glass" material="regular" renderer="css" interactive={false} id="sec-appearance">
         <div className="panel-title">外观</div>
         <div className="switch-row">
           <div>
@@ -554,10 +573,10 @@ export function SettingsPage() {
             onCheckedChange={(v) => set({ alwaysOnTop: v })}
           />
         </div>
-      </section>
+      </Glass>
 
       {/* ---------------- 高级 ---------------- */}
-      <section className="panel settings-section" id="sec-advanced">
+      <Glass as="section" className="panel settings-section sample-glass" material="regular" renderer="css" interactive={false} id="sec-advanced">
         <div className="panel-title">高级(吸附 / 导出 / 关于)</div>
 
         <div className="panel-title" style={{ fontSize: 12 }}>
@@ -663,7 +682,7 @@ export function SettingsPage() {
             退出应用
           </FxButton>
         </div>
-      </section>
+      </Glass>
     </div>
   );
 }

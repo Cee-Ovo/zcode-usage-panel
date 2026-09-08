@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { SearchField } from "open-glass-ui";
+import { Glass, SearchField } from "open-glass-ui";
 import { TrendChart } from "../components/TrendChart";
 import { AccessibleDialog } from "../components/AccessibleDialog";
 import { FxButton, FxCloseChip } from "../components/fx";
@@ -133,8 +133,15 @@ export function SessionsPage() {
   }, [openDetail, selectedSessionId]);
 
   return (
-    <div style={{ paddingTop: 6 }}>
-      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+    <div className="sessions-page" style={{ paddingTop: 6 }}>
+      <header className="page-heading page-heading--compact">
+        <div>
+          <span className="page-eyebrow">SESSION HISTORY</span>
+          <h1>Sessions</h1>
+          <p>浏览本地会话的 Token 用量与最近活动。</p>
+        </div>
+      </header>
+      <div className="page-toolbar sessions-toolbar" style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
         <SearchField label="搜索 session / 项目 / 模型" value={inputQuery} onValueChange={setInputQuery} placeholder="搜索 session / 项目 / 模型…" />
         <span className="muted" style={{ fontSize: 11 }}>{result ? `${result.total} sessions` : "加载 sessions…"}</span>
         <label className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
@@ -151,7 +158,7 @@ export function SessionsPage() {
         </label>
       </div>
 
-      <div className="panel">
+      <Glass className="panel sample-glass page-surface sessions-surface" material="regular" renderer="css" interactive={false}>
         <div className="session-row table-head" style={{ cursor: "default" }}>
           <span>Session</span><span>项目</span><span>模型</span>
           <span style={{ textAlign: "right" }}>Input</span><span style={{ textAlign: "right" }}>Output</span>
@@ -177,10 +184,10 @@ export function SessionsPage() {
             </div>
           </div>
         )}
-      </div>
+      </Glass>
 
       {(detail || detailLoading || detailError) && (
-        <AccessibleDialog label="Session 详情" onClose={closeDetail}>
+        <AccessibleDialog label="Session 详情" onClose={closeDetail} glass>
           <div className="panel-title">
             Session 详情 · {detail ? shortSessionId(detail.summary.id) : "加载中"}
             <span className="right"><FxCloseChip onClick={closeDetail} /></span>

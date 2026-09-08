@@ -326,7 +326,7 @@ fn dashboard_from_inner(range_key: &str, inner: &crate::engine::EngineInner, now
         active_session: active,
         speed,
         restored,
-        data_error: inner.last_error.clone(),
+        data_error: crate::engine::gate_error(inner.error_streak, inner.last_error.clone()),
     }
 }
 

@@ -57,6 +57,16 @@ async (page) => {
     api.usageView = async () => { throw new Error('synthetic-sidebar-error'); };
     store.set({rangeKey:'7d'});
   });
+  // One transient failure after a recent success must NOT flip the status
+  // card (anti-flicker hysteresis) — the dot stays 监控中.
+  await page.waitForTimeout(700);
+  await nav.getByText('监控中',{exact:true}).waitFor();
+  check((await nav.getByRole('alert').count()) === 0, 'transient failure must stay invisible');
+  // A second consecutive failing request escalates to a persistent error.
+  await page.evaluate(async () => {
+    const {store} = await import(performance.getEntriesByType('resource').find(r=>r.name.includes('/src/lib/store.ts')).name);
+    store.set({rangeKey:'30d'});
+  });
   await nav.getByRole('alert').waitFor();
   await nav.getByText('刷新异常',{exact:true}).waitFor();
   check(await nav.getByRole('button',{name:'重试',exact:true}).isVisible(), 'retry hidden');
@@ -67,6 +77,7 @@ async (page) => {
   });
   await nav.getByRole('button',{name:'重试',exact:true}).click();
   await nav.getByRole('alert').waitFor({state:'detached'});
+  await nav.getByText('监控中',{exact:true}).waitFor();
   await page.getByRole('button',{name:'浅色样板'}).click();
   check(!errors.length, errors.join('; '));
   return {result:'PASS',layouts,errors};

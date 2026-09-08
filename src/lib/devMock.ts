@@ -293,6 +293,7 @@ export const mockState: Partial<AppState> = {
     lastRefreshMs: now - 4_000,
     lastRecordMs: now - 40_000,
     error: null,
+    errorStreak: 0,
     paused: false,
     suspended: false,
     restoredFromCache: false,

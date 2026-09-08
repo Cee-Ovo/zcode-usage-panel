@@ -72,11 +72,33 @@ pub struct UsageUpdateEvent {
     pub record_count: u64,
     pub last_refresh_ms: Option<i64>,
     pub last_record_ms: Option<i64>,
+    /// Streak-gated error: only `Some` once failures persist across
+    /// `ERROR_VISIBILITY_STREAK` consecutive refresh cycles. The raw
+    /// last-cycle error stays available through `diagnose` / 运行详情.
     pub error: Option<String>,
+    /// Consecutive failing refresh cycles behind `error` (0 = last cycle
+    /// succeeded). Surfaces as honest detail in the UI.
+    pub error_streak: u32,
     pub paused: bool,
     pub restored_from_cache: bool,
     /// true while the UI is hidden (auto-suspend of polling).
     pub suspended: bool,
+}
+
+/// How many consecutive failing refresh cycles must pass before the error
+/// becomes user-visible. One bad cycle out of an otherwise healthy stream is
+/// a transient blip (the status card must not flip for it); two in a row
+/// within the ~5 s cadence still surfaces a persistent fault within seconds.
+pub const ERROR_VISIBILITY_STREAK: u32 = 2;
+
+/// Gating rule shared by the update event and the dashboard's `data_error`
+/// so the sidebar card and the top pill can never disagree.
+pub fn gate_error(streak: u32, raw: Option<String>) -> Option<String> {
+    if streak >= ERROR_VISIBILITY_STREAK {
+        raw
+    } else {
+        None
+    }
 }
 
 pub struct EngineInner {
@@ -86,6 +108,8 @@ pub struct EngineInner {
     pub layout: Option<DataLayout>,
     pub last_refresh: Option<i64>,
     pub last_error: Option<String>,
+    /// Consecutive refresh cycles that reported at least one error.
+    pub error_streak: u32,
     busy_until_ms: Option<i64>,
     pub boot: Option<BootSnapshot>,
     pub alerts: AlertEngine,
@@ -117,6 +141,7 @@ impl Engine {
                 layout: None,
                 last_refresh: None,
                 last_error: None,
+                error_streak: 0,
                 busy_until_ms: None,
                 boot: None,
                 alerts: AlertEngine::new(),
@@ -321,6 +346,14 @@ impl Engine {
                     )),
                 }
                 inner.last_discover = Some(Instant::now());
+            } else if discover::resolve_root(settings.data_dir.as_deref()).is_none() {
+                // Cheap re-check between full scans: a vanished data root is
+                // a persistent condition and must count toward the error
+                // streak every cycle, not only on 5-second scan boundaries.
+                errors.push(format!(
+                    "data directory not found (configured: {:?}) — expected <home>/.zcode or ZCODE_HOME",
+                    settings.data_dir
+                ));
             }
 
             // JSONL incremental reads
@@ -378,7 +411,15 @@ impl Engine {
 
             inner.last_refresh = Some(now);
             inner.busy_until_ms = busy.then_some(now + 2000);
+            // Hysteresis: one failing cycle is a blip (keep the raw error for
+            // diagnostics only); persistent failures escalate after
+            // ERROR_VISIBILITY_STREAK cycles and clear instantly on success.
             inner.last_error = errors.into_iter().next();
+            if inner.last_error.is_some() {
+                inner.error_streak = inner.error_streak.saturating_add(1);
+            } else {
+                inner.error_streak = 0;
+            }
 
             // Boot snapshot stays authoritative only until real data lands.
             if !inner.store.is_empty() {
@@ -420,7 +461,8 @@ impl Engine {
                     record_count: inner.store.len() as u64,
                     last_refresh_ms: inner.last_refresh,
                     last_record_ms: inner.store.last_record_ms,
-                    error: inner.last_error.clone(),
+                    error: gate_error(inner.error_streak, inner.last_error.clone()),
+                    error_streak: inner.error_streak,
                     paused: settings.monitoring_paused,
                     restored_from_cache: inner.boot.is_some(),
                     suspended: self.auto_paused.load(Ordering::Relaxed),
@@ -499,5 +541,80 @@ impl Engine {
                 let _ = std::fs::rename(&tmp, dir.join("boot-snapshot.json"));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settings_with_dir(dir: Option<&str>) -> Settings {
+        let mut s = Settings::default();
+        s.data_dir = dir.map(str::to_string);
+        s
+    }
+
+    #[test]
+    fn gate_error_requires_streak() {
+        let err = Some("boom".into());
+        assert!(gate_error(0, err.clone()).is_none());
+        assert!(gate_error(1, err.clone()).is_none(), "single-cycle failure stays invisible");
+        assert_eq!(gate_error(2, err.clone()).as_deref(), Some("boom"));
+        assert_eq!(gate_error(5, None), None, "no error text → nothing to show");
+    }
+
+    #[test]
+    fn refresh_once_accumulates_streak_across_missing_dir_cycles() {
+        let (engine, _rx) = Engine::new();
+        let bad = settings_with_dir(Some("/definitely/not/a/zcode/dir"));
+        engine.refresh_once(&bad);
+        {
+            let inner = engine.inner.lock().unwrap();
+            assert!(inner.last_error.is_some(), "raw error recorded for diagnostics");
+            assert_eq!(inner.error_streak, 1);
+            assert!(gate_error(inner.error_streak, inner.last_error.clone()).is_none());
+        }
+        // Second consecutive failing cycle → visible.
+        engine.refresh_once(&bad);
+        {
+            let inner = engine.inner.lock().unwrap();
+            assert_eq!(inner.error_streak, 2);
+            assert!(gate_error(inner.error_streak, inner.last_error.clone()).is_some());
+        }
+        // A healthy cycle clears the streak instantly (fast recovery).
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("projects/p")).unwrap();
+        std::fs::write(
+            dir.path().join("projects/p").join("1111111111111111111111111111111.jsonl"),
+            format!(
+                "{{\"type\":\"assistant\",\"timestamp\":{},\"message\":{{\"model\":\"m\",\"usage\":{{\"input_tokens\":1,\"output_tokens\":1}}}}}}\n",
+                1_788_000_000i64
+            ),
+        )
+        .unwrap();
+        let good = settings_with_dir(dir.path().to_str());
+        // Force the next cycle to re-discover (tests run faster than the 5s
+        // discovery cooldown; field access is fine from the child module).
+        engine.inner.lock().unwrap().last_discover = None;
+        engine.refresh_once(&good);
+        {
+            let inner = engine.inner.lock().unwrap();
+            assert_eq!(inner.error_streak, 0, "success clears the streak");
+            assert!(inner.last_error.is_none());
+            assert_eq!(inner.store.len(), 1, "valid record ingested");
+        }
+    }
+
+    #[test]
+    fn single_transient_error_cycle_never_reaches_visibility() {
+        let (engine, _rx) = Engine::new();
+        let bad = settings_with_dir(Some("/definitely/not/a/zcode/dir"));
+        engine.refresh_once(&bad); // streak 1 — invisible
+        let dir = tempfile::tempdir().unwrap();
+        let good = settings_with_dir(dir.path().to_str());
+        engine.refresh_once(&good); // empty dir resolves fine — streak resets
+        let inner = engine.inner.lock().unwrap();
+        assert_eq!(inner.error_streak, 0);
+        assert!(gate_error(inner.error_streak, inner.last_error.clone()).is_none());
     }
 }

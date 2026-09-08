@@ -15,12 +15,13 @@ import { ModelsPage } from "./pages/Models";
 import { SettingsPage } from "./pages/Settings";
 import { formatClock } from "./lib/format";
 import { createQueryCoordinator, type QueryCoordinator } from "./lib/queryCoordinator";
+import { HealthTracker } from "./lib/health";
 import type { AppState } from "./lib/store";
 
 type DataPage = "dashboard" | "models";
 type QueryPayload = Awaited<ReturnType<typeof api.usageView>>;
 
-function createAppQueryCoordinator() {
+function createAppQueryCoordinator(tracker: HealthTracker) {
   return createQueryCoordinator<DataPage, QueryPayload>({
     fetch: ({ page, rangeKey: key }) => api.usageView(key, page === "dashboard"),
     apply: (result) => {
@@ -31,7 +32,10 @@ function createAppQueryCoordinator() {
       if (result.trend !== null) patch.trend = result.trend;
       store.set(patch);
     },
-    onStateChange: (next) => store.set({ refresh: next }),
+    onStateChange: (next) => {
+      tracker.onQueryState(next);
+      store.set({ refresh: next, health: tracker.derive(Date.now()) });
+    },
   });
 }
 
@@ -49,6 +53,7 @@ export function App() {
   const paused = useStore((s) => s.settings?.monitoringPaused ?? false);
   const update = useStore((s) => s.update);
   const suspended = update?.suspended ?? false;
+  const health = useStore((s) => s.health);
   const rangeKey = useStore((s) => s.rangeKey);
   const ready = useStore((s) => s.ready);
   const initializationError = useStore((s) => s.initializationError);
@@ -57,6 +62,7 @@ export function App() {
     theme === "dark" ? "dark" : "light",
   );
   const coordinatorRef = useRef<QueryCoordinator<DataPage, QueryPayload> | null>(null);
+  const healthTrackerRef = useRef<HealthTracker | null>(null);
   const bootstrapRetryRef = useRef<(() => void) | null>(null);
   const initializationFailedRef = useRef(false);
 
@@ -127,7 +133,9 @@ export function App() {
   }, [requestVisiblePage]);
 
   useEffect(() => {
-    const queryCoordinator = createAppQueryCoordinator();
+    const healthTracker = new HealthTracker();
+    healthTrackerRef.current = healthTracker;
+    const queryCoordinator = createAppQueryCoordinator(healthTracker);
     coordinatorRef.current = queryCoordinator;
     let disposed = false;
     const bootstrap = async () => {
@@ -135,6 +143,8 @@ export function App() {
         const boot = await api.bootstrap();
         if (disposed) return;
         initializationFailedRef.current = false;
+        healthTracker.onInitialization(null);
+        healthTracker.onPaused(boot.settings.monitoringPaused);
         store.set({
           ready: true,
           initializationError: null,
@@ -143,6 +153,7 @@ export function App() {
           rangeKey: (RANGE_KEYS as readonly string[]).includes(boot.settings.defaultRange)
             ? (boot.settings.defaultRange as RangeKey)
             : "today",
+          health: healthTracker.derive(Date.now()),
         });
         const alerts = await api.alerts();
         const providers = await api.providersOverview();
@@ -151,8 +162,10 @@ export function App() {
       } catch {
         if (!disposed) {
           initializationFailedRef.current = true;
+          healthTracker.onInitialization("初始化失败，请重试");
           store.set({
             initializationError: "初始化失败，请重试",
+            health: healthTracker.derive(Date.now()),
           });
         }
       }
@@ -183,7 +196,8 @@ export function App() {
     const eventCleanups: (() => void)[] = [];
 
     registerEvent<import("./lib/types").UsageUpdateEvent>("usage-update", (e) => {
-      store.set({ update: e });
+      healthTracker.onEngineEvent(e);
+      store.set({ update: e, health: healthTracker.derive(Date.now()) });
       // Refresh the visible queries — Rust only emits at most ~2×/s.
       requestVisiblePage();
     });
@@ -212,7 +226,8 @@ export function App() {
     });
 
     registerEvent<import("./lib/types").Settings>("settings-changed", (s) => {
-      store.set({ settings: s });
+      healthTracker.onPaused(s.monitoringPaused);
+      store.set({ settings: s, health: healthTracker.derive(Date.now()) });
     });
 
     registerEvent<string>("navigate", (target) => {
@@ -240,6 +255,15 @@ export function App() {
     if (ready) requestVisiblePage();
     else coordinatorRef.current?.setVisible(false);
   }, [ready, page, rangeKey, requestVisiblePage]);
+
+  // Pause is owned by settings (fresh in mock and real sessions alike); feed
+  // it into the health tracker whenever it flips.
+  useEffect(() => {
+    const tracker = healthTrackerRef.current;
+    if (!tracker) return;
+    tracker.onPaused(paused);
+    store.set({ health: tracker.derive(Date.now()) });
+  }, [paused]);
 
   useEffect(() => {
     const onVisibilityChange = () => {
@@ -325,7 +349,10 @@ export function App() {
       if (s) api.saveSettings({ ...s, monitoringPaused: !v }).catch(() => {});
     }}
   />;
-  const monitoringError = !!(update?.error || refresh.error || initializationError);
+  // One derived health view drives the dot, the label and every error
+  // surface — no surface may read raw errors directly (anti-flicker rule).
+  const healthLevel = health.level;
+  const monitoringError = healthLevel === "error";
   return (
     <MotionConfig reducedMotion="user">
       <GlassSystemProvider
@@ -361,11 +388,13 @@ export function App() {
                 <div className="sidebar-status-heading" style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <span className="sidebar-status-label">
                   <span
-                    className={`status-dot ${paused || suspended ? "paused" : monitoringError ? "error" : "live"}`}
+                    className={`status-dot ${healthLevel === "paused" || healthLevel === "suspended" ? "paused" : monitoringError ? "error" : "live"}`}
                   />
                   {floatingSidebar
-                    ? paused ? "已暂停" : suspended ? "已挂起" : monitoringError ? "刷新异常" : "监控中"
-                    : paused ? "已暂停监控" : suspended ? "窗口隐藏·挂起监控" : "实时监控中"}
+                    ? health.statusText
+                    : healthLevel === "paused" ? "已暂停监控"
+                    : healthLevel === "suspended" ? "窗口隐藏·挂起监控"
+                    : monitoringError ? "刷新异常·实时监控中" : "实时监控中"}
                   </span>
                   {floatingSidebar && monitoringSwitch}
                 </div>
@@ -373,9 +402,10 @@ export function App() {
                   <div>更新 {formatClock(update.lastRefreshMs)}</div>
                 ) : null}
                 {update?.restoredFromCache && <div>显示缓存统计,同步中…</div>}
-                {initializationError && (
+                {monitoringError && (
                   <div role="alert" style={{ color: "var(--zup-red-600, #b42318)" }}>
-                    初始化失败 · {initializationError}{" "}
+                    {initializationError ? "初始化失败" : "刷新失败"} ·{" "}
+                    {health.detail ?? refresh.error ?? initializationError}{" "}
                     <button
                       type="button"
                       className="zup-nav-item"
@@ -387,19 +417,6 @@ export function App() {
                   </div>
                 )}
                 {refresh.loading && <div role="status">数据刷新中…</div>}
-                {refresh.error && !initializationError && (
-                  <div role="alert" style={{ color: "var(--zup-red-600, #b42318)" }}>
-                    刷新失败 · {refresh.error}{" "}
-                    <button
-                      type="button"
-                      className="zup-nav-item"
-                      onClick={retryRefresh}
-                      style={{ padding: "1px 5px", marginLeft: 2 }}
-                    >
-                      重试
-                    </button>
-                  </div>
-                )}
                 {refresh.lastSuccessMs !== null && (
                   <div>最近成功 {formatClock(refresh.lastSuccessMs)}</div>
                 )}
@@ -407,10 +424,9 @@ export function App() {
                 {floatingSidebar && <details className="sidebar-diagnostics">
                   <summary>运行详情</summary>
                   <div>{update?.lastRefreshMs ? `最近刷新尝试 ${formatClock(update.lastRefreshMs)}` : "暂无刷新记录"}</div>
+                  {update?.errorStreak ? <div>数据源连续失败周期 {update.errorStreak}</div> : null}
+                  {health.detail && <div>{health.detail}</div>}
                 </details>}
-                {floatingSidebar && update?.error && !refresh.error && !initializationError && <div role="alert">
-                  数据源刷新异常 <button type="button" onClick={retryRefresh}>重试</button>
-                </div>}
                 {!floatingSidebar && <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
                   <span>实时</span>
                   {monitoringSwitch}

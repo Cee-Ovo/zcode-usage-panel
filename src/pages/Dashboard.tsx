@@ -81,6 +81,7 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
   const visibleModels = useStore((s) => s.trendVisibleModels);
   const costSummary = useStore((s) => s.costSummary);
   const alerts = useStore((s) => s.alerts);
+  const health = useStore((s) => s.health);
   const [expanded, setExpanded] = useState(false);
   const [section, setSection] = useState<SectionKey>(readStoredSection);
   const [compact, setCompact] = useState(() => {
@@ -153,8 +154,8 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
         }}>
           {compact ? "显示详细指标" : "精简视图"}
         </FxButton>
-        {dash.dataError && (
-          <span className="badge-note" title={dash.dataError}>
+        {health.level === "error" && (
+          <span className="badge-note" title={dash.dataError ?? health.detail ?? undefined}>
             数据源异常
           </span>
         )}

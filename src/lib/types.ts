@@ -172,7 +172,9 @@ export interface UsageUpdateEvent {
   recordCount: number;
   lastRefreshMs: number | null;
   lastRecordMs: number | null;
+  /** Streak-gated by the backend: only set once failures persist ≥2 cycles. */
   error: string | null;
+  errorStreak: number;
   paused: boolean;
   suspended: boolean;
   restoredFromCache: boolean;

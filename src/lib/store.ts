@@ -17,6 +17,7 @@ import type {
   UsageUpdateEvent,
 } from "./types";
 import type { QueryCoordinatorState } from "./queryCoordinator";
+import type { HealthView } from "./health";
 
 export type RefreshState = Pick<
   QueryCoordinatorState<"dashboard" | "models">,
@@ -43,6 +44,8 @@ export interface AppState {
   providers: ProviderSnapshot[];
   quotaAlerts: QuotaAlertEvent[];
   refresh: RefreshState;
+  /** Unified monitoring health — the ONLY source for status dots/pills. */
+  health: HealthView;
 }
 
 type Listener = () => void;
@@ -74,6 +77,7 @@ const initial: AppState = {
     lastSuccessRequest: null,
     request: null,
   },
+  health: { level: "ok", statusText: "监控中", detail: null, persistent: false },
 };
 
 let state: AppState = initial;

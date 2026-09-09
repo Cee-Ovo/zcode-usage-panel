@@ -380,7 +380,9 @@ body {
 
 .session-row {
   display: grid;
-  grid-template-columns: 1.3fr 1.6fr 1.2fr repeat(6, minmax(60px, 1fr)) 70px;
+  /* 10 列:Session / 会话名 / 项目 / 模型 / 5 数字列 / 命中率+活动。
+     文本列配合 .clip-cell + truncateHead 截断,默认窗口宽(980)下不出横向滚动。 */
+  grid-template-columns: 72px minmax(96px, 1.8fr) minmax(76px, 1fr) minmax(72px, 1fr) repeat(5, minmax(44px, 0.8fr)) 86px;
   gap: 8px;
   align-items: center;
   padding: 8px 10px;
@@ -389,6 +391,15 @@ body {
   transition: background var(--zup-motion-control) var(--zup-ease-out);
   font-variant-numeric: tabular-nums;
   font-size: 12px;
+}
+
+.session-row > span { min-width: 0; }
+
+/* 截断单元格:配合 title 悬停展示完整内容。 */
+.clip-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .session-row:hover {

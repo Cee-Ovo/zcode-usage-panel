@@ -315,18 +315,48 @@ export const mockState: Partial<AppState> = {
     priceUpdatedAt: "2026-08-30",
     disclaimer: "按官方 API 单价估算 · 非实际 Billing",
   } satisfies CostSummaryDto,
+  // 会话名/项目来自 ZCode CLI session 表的真实样例(标题为实际生成标题)。
   sessions: [
     {
-      id: "a1b2c3d4e5f6-0001",
+      id: "sess_6db49f3e-4cac-4298-b3e3-6a713d3a3356",
+      title: "Sessions 页表格改造与会话数据补全",
       project: "zcode-usage-panel",
+      projectPath: "/home/cee/projects/zcode-usage-panel",
       models: ["glm-5.3", "glm-5.3-air"],
       agg: mkAgg(0.42),
     },
     {
-      id: "b2c3d4e5f6a7-0002",
-      project: "codex-usage-docs",
+      id: "sess_ccdd18d8-81c4-4647-bed4-a7a98dbe4df3",
+      title: "节点小宝远程屏幕控制连接失败排查",
+      project: "default",
+      projectPath: "/home/cee/.zcode/workspace/default",
       models: ["glm-5.3"],
       agg: mkAgg(0.2),
+    },
+    {
+      id: "sess_0b7b195c-0a19-42be-b946-c63711cb4db0",
+      title: "ZCode仪表盘速度指标与DSH三分区改造",
+      project: "zcode-usage-panel",
+      projectPath: "/home/cee/projects/zcode-usage-panel",
+      models: ["glm-5.3", "glm-5.3-flash"],
+      agg: mkAgg(0.31),
+    },
+    {
+      id: "sess_9c21e0e9-47b8-4528-b9ba-caee37ab5552",
+      title: "GTX 1650 部署优化 4B 模型达到 40 tok/s",
+      project: "qwen_agent",
+      projectPath: "/home/cee/projects/qwen_agent",
+      models: ["glm-5.3-flash"],
+      agg: mkAgg(0.14),
+    },
+    {
+      // 无 session 元数据行的会话:诚实降级为 "—",禁止编造。
+      id: "sess_0cfc7b4a-50c1-435f-aec3-29de1fb62e2d",
+      title: null,
+      project: null,
+      projectPath: null,
+      models: ["deepseek-v4-flash"],
+      agg: mkAgg(0.06),
     },
   ] satisfies SessionSummary[],
   alerts: [
@@ -540,7 +570,7 @@ export function mockSessionsPage(
   const normalized = query.trim().toLocaleLowerCase();
   const all = (mockState.sessions ?? []).filter((s) => {
     if (!normalized) return true;
-    return [s.id, s.project ?? "", ...s.models]
+    return [s.id, s.title ?? "", s.project ?? "", s.projectPath ?? "", ...s.models]
       .join("\u0000")
       .toLocaleLowerCase()
       .includes(normalized);

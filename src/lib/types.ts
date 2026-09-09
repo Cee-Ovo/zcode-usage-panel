@@ -94,7 +94,12 @@ export interface TrendDto {
 
 export interface SessionSummary {
   id: string;
+  /** 真实会话标题（ZCode CLI session 表）；null = 无真实标题,诚实降级为 "—"。 */
+  title: string | null;
+  /** 项目文件夹名(显示用);记录级 project 优先,回退 session 表 directory 末段。 */
   project: string | null;
+  /** 完整工作区路径(悬停提示/详情用);null = 未知。 */
+  projectPath: string | null;
   models: string[];
   agg: Agg;
 }

@@ -99,6 +99,16 @@ export function shortSessionId(id: string): string {
   return `${id.slice(0, 8)}…${id.slice(-4)}`;
 }
 
+/**
+ * 头部截断(按 Unicode 码点,中文/emoji 安全):超过 max 个字符时保留
+ * 前 max-1 个 + "…"。完整内容始终通过 title 悬停展示。
+ */
+export function truncateHead(s: string, max: number): string {
+  const chars = Array.from(s);
+  if (chars.length <= max) return s;
+  return chars.slice(0, Math.max(1, max - 1)).join("") + "…";
+}
+
 /** CNY cost: ¥ + thousand separators + 2 decimals; 0 → ¥0.00; tiny (>0, <0.01) → <¥0.01. */
 export function formatCny(n: number): string {
   if (!isFinite(n)) return "¥0.00";

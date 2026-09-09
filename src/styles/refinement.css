@@ -192,7 +192,9 @@
 .zup-frame .badge-note { background: var(--refine-muted); color: var(--zup-text-2); border: 1px solid var(--refine-line); padding: 3px 7px; border-radius: 5px; }
 
 .zup-frame .model-row { grid-template-columns: minmax(130px, 1.5fr) repeat(5, minmax(54px, 1fr)) 70px 84px 78px; min-width: 740px; gap: 10px; padding: 11px 8px; border-radius: 6px; }
-.zup-frame .session-row { grid-template-columns: 110px minmax(110px, 1.3fr) minmax(110px, 1.2fr) repeat(5, minmax(64px, 1fr)) 98px; min-width: 870px; padding: 11px 8px; }
+.zup-frame .session-row { grid-template-columns: 72px minmax(96px, 1.8fr) minmax(76px, 1fr) minmax(72px, 1fr) repeat(5, minmax(44px, 0.8fr)) 86px; min-width: 0; padding: 11px 8px; }
+.zup-frame .session-row > span { min-width: 0; }
+.zup-frame .session-row.table-head > span { white-space: nowrap; }
 .zup-frame :is(.model-row, .session-row) + :is(.model-row, .session-row) { border-top: 1px solid var(--refine-line); }
 .zup-frame .panel:has(> .model-row), .zup-frame .panel:has(> .session-row) { overflow-x: auto; }
 .zup-frame .settings-section:has(.price-row) { overflow-x: auto; }

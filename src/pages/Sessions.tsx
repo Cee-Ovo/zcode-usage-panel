@@ -8,7 +8,7 @@ import { api, onEvent } from "../lib/ipc";
 import { store, useStore } from "../lib/store";
 import type { SessionSort, SessionSummary, SessionsPageDto } from "../lib/types";
 import { cacheHitRate, totalTokens } from "../lib/types";
-import { formatDateTime, formatRelative, formatTokens, shortSessionId } from "../lib/format";
+import { formatDateTime, formatRelative, formatTokens, shortSessionId, truncateHead } from "../lib/format";
 import { listItemVariants, rowGestures, softSpring } from "../lib/motion";
 
 const DEFAULT_PAGE_SIZE = 50;
@@ -142,7 +142,7 @@ export function SessionsPage() {
         </div>
       </header>
       <div className="page-toolbar sessions-toolbar" style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
-        <SearchField label="搜索 session / 项目 / 模型" value={inputQuery} onValueChange={setInputQuery} placeholder="搜索 session / 项目 / 模型…" />
+        <SearchField label="搜索 session / 会话名 / 项目 / 模型" value={inputQuery} onValueChange={setInputQuery} placeholder="搜索 session / 会话名 / 项目 / 模型…" />
         <span className="muted" style={{ fontSize: 11 }}>{result ? `${result.total} sessions` : "加载 sessions…"}</span>
         <label className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
           排序{" "}
@@ -160,10 +160,13 @@ export function SessionsPage() {
 
       <Glass className="panel sample-glass page-surface sessions-surface" material="regular" renderer="css" interactive={false}>
         <div className="session-row table-head" style={{ cursor: "default" }}>
-          <span>Session</span><span>项目</span><span>模型</span>
-          <span style={{ textAlign: "right" }}>Input</span><span style={{ textAlign: "right" }}>Output</span>
-          <span style={{ textAlign: "right" }}>Reasoning</span><span style={{ textAlign: "right" }}>Cache</span>
-          <span style={{ textAlign: "right" }}>总 Token</span><span style={{ textAlign: "right" }}>命中率 / 最近活动</span>
+          <span title="完整 Session ID 见单元格悬停">Session</span>
+          <span title="真实会话标题(ZCode 本地记录),完整内容见悬停">会话名</span>
+          <span title="项目文件夹名,完整路径见悬停">项目</span>
+          <span title="完整模型名见悬停">模型</span>
+          <span style={{ textAlign: "right" }}>输入</span><span style={{ textAlign: "right" }}>输出</span>
+          <span style={{ textAlign: "right" }}>推理</span><span style={{ textAlign: "right" }}>缓存</span>
+          <span style={{ textAlign: "right" }}>总量</span><span style={{ textAlign: "right" }}>命中率 / 活动</span>
         </div>
         {loading && !result && <div className="empty-state">正在加载 Session…</div>}
         {error && <div className="empty-state" role="alert">加载 Session 失败：{error}<br /><FxButton size="small" onClick={refresh}>重试</FxButton></div>}
@@ -203,7 +206,9 @@ export function SessionsPage() {
           {detail && !detailLoading && !detailError && (
             <>
               <div className="kv" style={{ marginBottom: 12 }}>
-                <span className="k">项目</span><span>{detail.summary.project ?? "—"}</span>
+                <span className="k">会话名</span><span>{detail.summary.title ?? "—（无真实标题）"}</span>
+                <span className="k">项目</span><span>{detail.summary.projectPath ?? detail.summary.project ?? "—"}</span>
+                <span className="k">Session ID</span><span style={{ wordBreak: "break-all" }}>{detail.summary.id}</span>
                 <span className="k">模型</span><span>{detail.summary.models.join(", ")}</span>
                 <span className="k">开始 → 最后活动</span>
                 <span>
@@ -256,9 +261,16 @@ function SessionLine({ s, onOpen }: { s: SessionSummary; onOpen: (sessionId: str
       }}
       title="点击查看 Session 趋势"
     >
-      <span title={s.id}>{shortSessionId(s.id)}</span>
-      <span className="muted" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.project ?? "—"}</span>
-      <span className="muted" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.models.join(", ")}</span>
+      <span title={s.id}>{truncateHead(s.id, 10)}</span>
+      <span title={s.title ?? "无真实会话标题"} className={s.title ? "clip-cell" : "muted clip-cell"}>
+        {s.title ? truncateHead(s.title, 12) : "—"}
+      </span>
+      <span title={s.projectPath ?? s.project ?? "无项目记录"} className="muted clip-cell">
+        {s.project ? truncateHead(s.project, 14) : "—"}
+      </span>
+      <span title={s.models.join(", ") || "无模型记录"} className="muted clip-cell">
+        {s.models.length > 0 ? truncateHead(s.models.join(", "), 14) : "—"}
+      </span>
       <span className="num">{formatTokens(s.agg.input)}</span><span className="num">{formatTokens(s.agg.output)}</span>
       <span className="num">{s.agg.reasoning.present > 0 ? formatTokens(s.agg.reasoning.sum) : "—"}</span>
       <span className="num">{s.agg.cacheRead.present > 0 ? formatTokens(s.agg.cacheRead.sum) : "—"}</span>

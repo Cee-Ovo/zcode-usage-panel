@@ -7,6 +7,7 @@ import {
   formatTokens,
   formatUnitPerM,
   shortSessionId,
+  truncateHead,
   formatLatency,
   formatTps,
 } from "../src/lib/format";
@@ -55,6 +56,29 @@ describe("shortSessionId", () => {
   });
   it("returns short ids unchanged", () => {
     expect(shortSessionId("abc")).toBe("abc");
+  });
+});
+
+describe("truncateHead", () => {
+  it("keeps short strings untouched", () => {
+    expect(truncateHead("abc", 10)).toBe("abc");
+    expect(truncateHead("", 10)).toBe("");
+  });
+  it("cuts to max-1 chars plus ellipsis", () => {
+    expect(truncateHead("sess_6db49f3e-4cac-4298", 10)).toBe("sess_6db4…");
+    expect(truncateHead("a".repeat(14), 14)).toBe("a".repeat(14));
+    expect(truncateHead("a".repeat(15), 14)).toBe(`${"a".repeat(13)}…`);
+  });
+  it("counts unicode code points, not UTF-16 units", () => {
+    // 中文:12 个码点内不截断;超过时保留 max-1=11 个码点 + "…"。
+    expect(truncateHead("节点小宝远程屏幕控制连接失败排查", 12)).toBe("节点小宝远程屏幕控制连…");
+    expect(truncateHead("优化登录性能", 12)).toBe("优化登录性能");
+    // emoji(代理对)不会被切成乱码。
+    expect(truncateHead("😀😃😄😁😆", 3)).toBe("😀😃…");
+  });
+  it("always keeps at least one visible character before the ellipsis", () => {
+    expect(truncateHead("ab", 1)).toBe("a…");
+    expect(truncateHead("ab", 2)).toBe("ab");
   });
 });
 

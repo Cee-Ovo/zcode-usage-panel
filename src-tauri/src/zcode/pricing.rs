@@ -1470,6 +1470,59 @@ mod tests {
         assert!(models.contains(&"glm-5.3-flash"));
         assert!(models.contains(&"deepseek-v4-flash"));
         assert!(models.contains(&"claude-fable-5"));
+        // 2026-09-09 官方页核对后新增的型号。
+        assert!(models.contains(&"gpt-5.6-cyber"));
+        assert!(models.contains(&"claude-fable-5.1"));
+        assert!(models.contains(&"kimi-k2.7-code-highspeed"));
+    }
+
+    /// 反编造守卫：表内每个条目都必须能对应一条官方来源 URL。
+    /// （此前 gpt-5.6 / grok / kimi / doubao 曾是无来源的写死价。）
+    #[test]
+    fn every_builtin_entry_has_official_source_url() {
+        let t = builtin();
+        for pe in &t.entries {
+            for e in &pe.models {
+                assert!(
+                    !e.source_url.trim().is_empty(),
+                    "{} / {} 缺少官方来源 URL",
+                    pe.provider,
+                    e.model
+                );
+                assert!(
+                    e.source_url.starts_with("https://"),
+                    "{} 的来源不是 https 官方页: {}",
+                    e.model,
+                    e.source_url
+                );
+            }
+        }
+    }
+
+    /// 2026-09-09 逐家官方定价页核对出的正确价（替换原"价格写死"占位）。
+    #[test]
+    fn corrected_prices_match_official_pages() {
+        let t = builtin();
+        let flat = |model: &str| {
+            let (e, _) = find_entry(&t, model).unwrap();
+            let Pricing::Flat(f) = &e.pricing else { panic!("{model} 应为 flat 定价") };
+            (f.input_per_m, f.cache_hit_per_m, f.output_per_m, e.currency.as_str())
+        };
+        // OpenAI https://developers.openai.com/api/docs/pricing
+        assert_eq!(flat("gpt-5.6-luna"), (0.2, 0.02, 1.2, "USD"));
+        assert_eq!(flat("gpt-5.6-sol"), (4.0, 0.4, 20.0, "USD"));
+        assert_eq!(flat("gpt-5.6-terra"), (2.0, 0.2, 12.0, "USD"));
+        // xAI https://docs.x.ai/docs/models（<200k 标准档）
+        assert_eq!(flat("grok-4.6"), (2.0, 0.5, 6.0, "USD"));
+        assert_eq!(flat("grok-4.5"), (2.0, 0.3, 6.0, "USD"));
+        // Kimi https://platform.kimi.ai/docs/pricing/chat-k27-code
+        assert_eq!(flat("kimi-k2.7-code"), (0.95, 0.19, 4.0, "USD"));
+        assert_eq!(flat("kimi-k2.7-code-highspeed"), (1.9, 0.38, 8.0, "USD"));
+        // 火山引擎 https://www.volcengine.com/product/doubao
+        assert_eq!(flat("doubao-seed-evolving"), (6.0, 1.2, 30.0, "CNY"));
+        // Anthropic 5.1 代：缓存读降至 $0.25/M
+        assert_eq!(flat("claude-fable-5.1"), (10.0, 0.25, 50.0, "USD"));
+        assert_eq!(flat("claude-mythos-5.1"), (10.0, 0.25, 50.0, "USD"));
     }
 
     #[test]
@@ -1598,8 +1651,8 @@ mod tests {
     fn fx_fallback_from_builtin() {
         let pm = PricingManager::new(None);
         let f = pm.fx();
-        assert!((f.usd_cny - 6.7203).abs() < 1e-9);
-        assert_eq!(f.updated_at, "2026-08-27");
+        assert!((f.usd_cny - 6.7105).abs() < 1e-9);
+        assert_eq!(f.updated_at, "2026-09-08");
         assert_eq!(f.source, "builtin fallback");
     }
 
@@ -1756,7 +1809,7 @@ mod tests {
         assert!(res.error.is_some());
         // Local table and fallback FX are retained; error is recorded.
         assert_eq!(pm.current_table().updated_at, before);
-        assert!((pm.fx().usd_cny - 6.7203).abs() < 1e-9);
+        assert!((pm.fx().usd_cny - 6.7105).abs() < 1e-9);
         assert_eq!(pm.fx().source, "builtin fallback");
         assert!(pm.last_error().is_some());
     }

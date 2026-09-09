@@ -181,7 +181,11 @@ pub fn log_candidates(install: &InstallPaths) -> Vec<PathBuf> {
 /// (case-insensitive keys): `--extension_server_port <p>`, `port=<p>`,
 /// `"port":<p>`, `listening on 127.0.0.1:<p>`, `--csrf_token <t>`,
 /// `csrf_token=<t>`.
-pub fn parse_endpoint_from_log(text: &str) -> Vec<Endpoint> {
+/// Endpoints plus the last csrf token seen in one log. The token and the
+/// ports may live in *different* logs (the IDE logs the spawn line with
+/// `--csrf_token` in `main.log`, while the rotating `…URL: https://…`
+/// service port shows up in `language_server.log`), so callers must merge.
+pub fn parse_endpoint_and_csrf(text: &str) -> (Vec<Endpoint>, Option<String>) {
     let mut out: Vec<Endpoint> = Vec::new();
     let mut csrf: Option<String> = None;
     let plausible = |v: &str| v.len() >= 8 && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
@@ -229,14 +233,24 @@ pub fn parse_endpoint_from_log(text: &str) -> Vec<Endpoint> {
         let rest = &text[hit..];
         if let Some(p) = extract_port_after(rest) {
             if (1024..=65535).contains(&p) {
-                let ep = Endpoint { port: p, csrf_token: csrf.clone(), https: false };
+                // The scheme right before the host wins: Antigravity serves
+                // its Connect RPC over loopback TLS ("…URL: https://127.0.0.1:<p>/"),
+                // and assuming http there fails every probe.
+                let back = text.get(hit.saturating_sub(12)..hit).unwrap_or("");
+                let https = back.to_ascii_lowercase().contains("https");
+                let ep = Endpoint { port: p, csrf_token: csrf.clone(), https };
                 if !out.contains(&ep) {
                     out.push(ep);
                 }
             }
         }
     }
-    out
+    (out, csrf)
+}
+
+/// Back-compat wrapper: endpoints only.
+pub fn parse_endpoint_from_log(text: &str) -> Vec<Endpoint> {
+    parse_endpoint_and_csrf(text).0
 }
 
 fn extract_port_after(text: &str) -> Option<u16> {
@@ -278,9 +292,17 @@ fn read_tail(path: &Path, max_bytes: u64) -> Option<String> {
     Some(buf)
 }
 
-/// Discover endpoints by scanning the newest of the candidate logs.
+/// Discover endpoints by merging every candidate log, newest first.
+///
+/// The csrf token and the service ports routinely live in *different* logs
+/// (spawn line with `--csrf_token` in `main.log`, rotating `…URL:
+/// https://…` port in `language_server.log`), so a "newest log wins" rule
+/// drops the token and every probe comes back 401. We take the union of
+/// ports across logs, newest log first, and stamp them all with the newest
+/// csrf seen anywhere. Probing a stale port is cheap (instant
+/// connection-refused), so breadth beats precision here.
 pub fn discover_endpoints(install: &InstallPaths) -> Vec<Endpoint> {
-    let mut best: Option<(std::time::SystemTime, Vec<Endpoint>)> = None;
+    let mut entries: Vec<(std::time::SystemTime, Vec<Endpoint>, Option<String>)> = Vec::new();
     for log in log_candidates(install) {
         if !log.is_file() {
             continue;
@@ -289,16 +311,25 @@ pub fn discover_endpoints(install: &InstallPaths) -> Vec<Endpoint> {
             .and_then(|m| m.modified())
             .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
         if let Some(text) = read_tail(&log, LOG_SCAN_BYTES) {
-            let eps = parse_endpoint_from_log(&text);
-            if !eps.is_empty() {
-                match &best {
-                    Some((t, _)) if *t >= mtime => {}
-                    _ => best = Some((mtime, eps)),
-                }
+            let (eps, csrf) = parse_endpoint_and_csrf(&text);
+            if !eps.is_empty() || csrf.is_some() {
+                entries.push((mtime, eps, csrf));
             }
         }
     }
-    best.map(|(_, eps)| eps).unwrap_or_default()
+    entries.sort_by(|a, b| b.0.cmp(&a.0));
+    let newest_csrf = entries.iter().find_map(|(_, _, c)| c.clone());
+    let mut out: Vec<Endpoint> = Vec::new();
+    for (_, eps, _) in &entries {
+        for ep in eps {
+            let mut ep = ep.clone();
+            ep.csrf_token = newest_csrf.clone();
+            if !out.contains(&ep) {
+                out.push(ep);
+            }
+        }
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -326,6 +357,7 @@ pub fn parse_user_status(body: &str) -> Option<(Option<String>, Option<String>, 
     let us = v.get("userStatus").cloned().unwrap_or(v);
     let email = us
         .get("accountEmail")
+        .or_else(|| us.get("email"))
         .and_then(|e| e.as_str())
         .map(|s| s.to_string());
     let plan = us
@@ -538,6 +570,23 @@ mod tests {
         let log2 = r#"{"level":"info","port":49999}"#;
         let eps2 = parse_endpoint_from_log(log2);
         assert!(eps2.iter().any(|e| e.port == 49999));
+    }
+
+    #[test]
+    fn endpoint_scheme_comes_from_url_prefix() {
+        // Antigravity 2.x serves its Connect RPC over loopback TLS; the bare
+        // "127.0.0.1:<port>" scan must honor the scheme written right before
+        // the host, or every https probe is built as http and fails.
+        let log = r#"
+[2026-09-09 23:04:10] [info]  Host bridge server listening on http://127.0.0.1:60262
+[2026-09-09 23:04:10] [info]  [Auto-Restart] Port changed! Reloading all windows with URL: https://127.0.0.1:60263/
+"#;
+        let eps = parse_endpoint_from_log(log);
+        let bridge = eps.iter().find(|e| e.port == 60262).expect("60262");
+        assert!(!bridge.https, "host bridge is plain http");
+        let ui = eps.iter().find(|e| e.port == 60263).expect("60263");
+        assert!(ui.https, "language server UI/RPC is https");
+        assert_eq!(ui.url(), "https://127.0.0.1:60263/exa.language_server_pb.LanguageServerService/GetUserStatus");
     }
 
     #[test]

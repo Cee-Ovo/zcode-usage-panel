@@ -136,9 +136,19 @@
 .zup-frame .dashboard-metrics { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
 /* 指标卡区块与下方模型排行之间拉开呼吸间距(两者是普通文档流,默认无间距)。 */
 .zup-frame .dashboard-section > .dashboard-metrics { margin-bottom: 12px; }
-/* 模型页专属响应速度列;仪表盘排行继续保持原来的九列。 */
+/* 模型页收紧为九列:移除占比列后,速度列不再把面板撑出横向滚动。 */
+.zup-frame .models-surface {
+  overflow-x: hidden;
+}
 .zup-frame .models-surface .model-row {
-  grid-template-columns: minmax(120px, 1.4fr) repeat(6, minmax(56px, 1fr)) 64px 84px 110px;
+  grid-template-columns: minmax(120px, 1.5fr) repeat(6, minmax(48px, 1fr)) minmax(80px, auto) minmax(108px, auto);
+  min-width: 0;
+}
+.zup-frame .models-surface .model-row > .num {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .zup-frame .models-surface .model-row > .num:last-child {
   color: var(--zup-text-2);

@@ -67,12 +67,8 @@ export function ModelsPage() {
                   </span>
                   {row.name}
                 </div>
-                <div className="share-track">
-                  <div className="share-fill" style={{ width: `${Math.round(row.share * 100)}%` }} />
-                </div>
               </div>
               <span className="num">{formatTokens(totalTokens(row.agg))}</span>
-              <span className="num">{(row.share * 100).toFixed(1)}%</span>
               <span className="num">{formatTokens(row.agg.input)}</span>
               <span className="num">{formatTokens(row.agg.output)}</span>
               <span className="num">

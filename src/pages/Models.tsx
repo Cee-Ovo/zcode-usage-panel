@@ -8,7 +8,7 @@ import { api } from "../lib/ipc";
 import { store, useStore } from "../lib/store";
 import type { ModelDetailDto } from "../lib/types";
 import { cacheHitRate, totalTokens } from "../lib/types";
-import { formatCny, formatFull, formatPercent, formatRelative, formatTokens, shortSessionId } from "../lib/format";
+import { formatCny, formatFull, formatModelSpeed, formatModelSpeedHint, formatPercent, formatRelative, formatTokens, shortSessionId } from "../lib/format";
 import { listItemVariants, rowGestures, softSpring } from "../lib/motion";
 import { FxCloseChip } from "../components/fx";
 import { AccessibleDialog } from "../components/AccessibleDialog";
@@ -91,6 +91,9 @@ export function ModelsPage() {
                   const c = costByModel.get(row.name);
                   return c?.priced ? `≈ ${formatCny(c.costCny)}` : "价格未知";
                 })()}
+              </span>
+              <span className="num" title={formatModelSpeedHint(row.speed)}>
+                {formatModelSpeed(row.speed)}
               </span>
             </motion.div>
           ))}

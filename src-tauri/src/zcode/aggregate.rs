@@ -278,7 +278,12 @@ fn percentile(sorted: &[u64], pct: f64) -> u64 {
 }
 
 /// Compute TTFT / tok-s statistics over `records` (usually one range slice).
-pub fn compute_speed_stats(records: &[UsageRecord]) -> SpeedStats {
+/// Generic over the iterator so per-model groups (`&[&UsageRecord]`) reuse the
+/// exact same caliber as the whole-range dashboard card.
+pub fn compute_speed_stats<'a, I>(records: I) -> SpeedStats
+where
+    I: IntoIterator<Item = &'a UsageRecord>,
+{
     let mut stats = SpeedStats::default();
     let mut ttfts: Vec<u64> = Vec::new();
     let mut per_request_tps: Vec<f64> = Vec::new();
@@ -324,6 +329,20 @@ pub fn compute_speed_stats(records: &[UsageRecord]) -> SpeedStats {
         stats.speed_samples = per_request_tps.len() as u64;
     }
     stats
+}
+
+/// Per-model speed stats over the same record set. Delegates to
+/// `compute_speed_stats` per group so the caliber (completed-only, TTFT
+/// validity, weighted TPS) matches the whole-range dashboard card exactly.
+pub fn speed_by_model(records: &[UsageRecord]) -> HashMap<String, SpeedStats> {
+    let mut groups: HashMap<String, Vec<&UsageRecord>> = HashMap::new();
+    for r in records {
+        groups.entry(r.model.clone()).or_default().push(r);
+    }
+    groups
+        .into_iter()
+        .map(|(name, group)| (name, compute_speed_stats(group)))
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -454,6 +473,34 @@ mod tests {
         assert_eq!(s.speed_samples, 3);
         assert_eq!(s.generated_tokens, 600);
         assert_eq!(s.generation_ms, 5_000);
+    }
+
+    #[test]
+    fn speed_by_model_matches_whole_range_caliber() {
+        let mut a1 = speed_rec(1, 100, None, Some(1_000), Some(2_000), None);
+        a1.model = "alpha".into();
+        let mut a2 = speed_rec(2, 300, None, Some(3_000), Some(4_000), Some("completed"));
+        a2.model = "alpha".into();
+        let mut b1 = speed_rec(3, 500, None, Some(500), Some(1_500), Some("completed"));
+        b1.model = "beta".into();
+        // error rows never reach any model's stats
+        let mut err = speed_rec(4, 999, None, Some(100), Some(9_000), Some("error"));
+        err.model = "beta".into();
+
+        let by_model = speed_by_model(&[a1, a2, b1, err]);
+        assert_eq!(by_model.len(), 2);
+
+        let alpha = &by_model["alpha"];
+        assert_eq!(alpha.completed_requests, 2);
+        assert!((alpha.ttft_avg_ms.unwrap() - 2_000.0).abs() < 1e-9);
+        // weighted: 400 tokens over (1s + 1s) generation = 200 tps
+        assert!((alpha.speed_tps.unwrap() - 200.0).abs() < 1e-9);
+
+        let beta = &by_model["beta"];
+        assert_eq!(beta.completed_requests, 1);
+        assert_eq!(beta.ttft_samples, 1);
+        // 500 tokens over (1500-500)ms = 500 tps
+        assert!((beta.speed_tps.unwrap() - 500.0).abs() < 1e-9);
     }
 
     #[test]

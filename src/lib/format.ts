@@ -1,5 +1,7 @@
 /** Number & time formatting helpers. */
 
+import type { SpeedStats } from "./types";
+
 export function formatTokens(n: number): string {
   if (!isFinite(n)) return "—";
   if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
@@ -33,6 +35,26 @@ export function formatTps(v: number | null): string {
   if (v === null || !isFinite(v) || v <= 0) return "—";
   if (v >= 10) return `${Math.round(v)} tok/s`;
   return `${v.toFixed(1)} tok/s`;
+}
+
+/** 模型页响应速度单元格:"2.8 秒 · 87 tok/s"(与仪表盘速度卡同格式);
+ *  任一子项缺样本就省略,全缺为 "—"。 */
+export function formatModelSpeed(speed: SpeedStats | null | undefined): string {
+  if (!speed) return "—";
+  const ttft = speed.ttftAvgMs !== null ? formatLatency(speed.ttftAvgMs) : null;
+  const tps = speed.speedTps !== null ? formatTps(speed.speedTps) : null;
+  const parts = [ttft, tps].filter((p): p is string => p !== null);
+  return parts.length > 0 ? parts.join(" · ") : "—";
+}
+
+/** 响应速度单元格的悬停补充:P95 首字 / P50 TPS / 样本覆盖。 */
+export function formatModelSpeedHint(speed: SpeedStats | null | undefined): string {
+  if (!speed) return "暂无速度样本";
+  const bits: string[] = [];
+  if (speed.ttftP95Ms !== null) bits.push(`首字 P95 ${formatLatency(speed.ttftP95Ms)}`);
+  if (speed.speedP50Tps !== null) bits.push(`TPS P50 ${formatTps(speed.speedP50Tps)}`);
+  bits.push(`样本 ${speed.speedSamples}/${speed.completedRequests} 条请求`);
+  return bits.join(" · ");
 }
 
 export function formatClock(ms: number | null): string {

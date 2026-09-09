@@ -9,8 +9,8 @@ use tauri::{AppHandle, Emitter, Manager, State, Window};
 use crate::engine::now_ms;
 use crate::settings::{self, Settings};
 use crate::zcode::aggregate::{
-    bucketize, compute_speed_stats, group_by_model, resolve_span, Agg, Bucket, ModelStat,
-    SessionSummary, SpeedStats, TrendRange,
+    bucketize, compute_speed_stats, group_by_model, resolve_span, speed_by_model, Agg, Bucket,
+    ModelStat, SessionSummary, SpeedStats, TrendRange,
 };
 use crate::zcode::pricing::{
     CostDetailDto, CostSummaryDto, OverrideDto, PricingManager, PricingRefreshResultDto,
@@ -45,6 +45,9 @@ pub struct ModelRow {
     pub agg: Agg,
     /// Share of total tokens in range (0..1).
     pub share: f64,
+    /// Response-speed stats for this model in range (default = no samples,
+    /// e.g. the boot-snapshot path has no raw records).
+    pub speed: SpeedStats,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -255,6 +258,7 @@ fn active_session_of(inner: &crate::engine::EngineInner) -> Option<ActiveSession
 
 fn model_rows(records: &[UsageRecord]) -> Vec<ModelRow> {
     let stats = group_by_model(records);
+    let speed_by_name = speed_by_model(records);
     let grand: u64 = stats.iter().map(|m| m.agg.total_tokens()).sum();
     stats
         .into_iter()
@@ -262,6 +266,7 @@ fn model_rows(records: &[UsageRecord]) -> Vec<ModelRow> {
             let total = m.agg.total_tokens();
             ModelRow {
                 share: if grand > 0 { total as f64 / grand as f64 } else { 0.0 },
+                speed: speed_by_name.get(&m.name).cloned().unwrap_or_default(),
                 name: m.name,
                 agg: m.agg,
             }
@@ -340,6 +345,7 @@ fn boot_rows(boot: &crate::engine::BootSnapshot) -> Vec<ModelRow> {
                 share: if grand > 0 { total as f64 / grand as f64 } else { 0.0 },
                 name: m.name.clone(),
                 agg: m.agg.clone(),
+                speed: SpeedStats::default(),
             }
         })
         .collect()

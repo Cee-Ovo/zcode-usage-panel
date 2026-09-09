@@ -41,6 +41,8 @@ export interface ModelRow {
   name: string;
   agg: Agg;
   share: number;
+  /** Per-model speed stats; absent/default on the boot-snapshot path. */
+  speed?: SpeedStats | null;
 }
 
 export interface ModelSwitch {

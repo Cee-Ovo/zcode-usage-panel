@@ -136,6 +136,13 @@
 .zup-frame .dashboard-metrics { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
 /* 指标卡区块与下方模型排行之间拉开呼吸间距(两者是普通文档流,默认无间距)。 */
 .zup-frame .dashboard-section > .dashboard-metrics { margin-bottom: 12px; }
+/* 模型页专属响应速度列;仪表盘排行继续保持原来的九列。 */
+.zup-frame .models-surface .model-row {
+  grid-template-columns: minmax(120px, 1.4fr) repeat(6, minmax(56px, 1fr)) 64px 84px 110px;
+}
+.zup-frame .models-surface .model-row > .num:last-child {
+  color: var(--zup-text-2);
+}
 .zup-frame .dashboard-metrics > .metric-card { padding: 14px 12px; }
 .zup-frame .dashboard-metrics > :is(.metric-card--primary, .metric-card--cost) { grid-column: span 3; padding: 21px 24px; }
 /* 普通指标卡固定占 2 列:加入响应速度卡后保持 3×3 + (命中率+活跃模型) 满排节奏。 */

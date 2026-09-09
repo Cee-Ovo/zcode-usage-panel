@@ -116,6 +116,11 @@ pub struct ProviderSettings {
     /// Override for the DeepSeek Harness data dir (`~/.dsh` by default).
     pub dsh_home: Option<String>,
     pub dsh_refresh_ms: u64,
+    pub claude_code_enabled: bool,
+    /// Override for the Claude Code config dir (`~/.claude` by default,
+    /// `$CLAUDE_CONFIG_DIR` honored).
+    pub claude_code_home: Option<String>,
+    pub claude_code_refresh_ms: u64,
     pub antigravity_enabled: bool,
     pub antigravity_refresh_ms: u64,
     pub volcengine_enabled: bool,
@@ -134,6 +139,9 @@ impl Default for ProviderSettings {
             dsh_enabled: true,
             dsh_home: None,
             dsh_refresh_ms: crate::providers::cadence::DSH_MS,
+            claude_code_enabled: true,
+            claude_code_home: None,
+            claude_code_refresh_ms: crate::providers::cadence::CLAUDE_CODE_MS,
             antigravity_enabled: true,
             antigravity_refresh_ms: crate::providers::cadence::ANTIGRAVITY_MS,
             volcengine_enabled: true,

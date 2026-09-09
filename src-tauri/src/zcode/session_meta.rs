@@ -84,7 +84,7 @@ fn non_empty(s: Option<String>) -> Option<String> {
 
 /// Last path segment of a directory string, tolerating both `/` and `\`
 /// separators regardless of the OS this build runs on.
-fn folder_name(dir: &str) -> Option<String> {
+pub(crate) fn folder_name(dir: &str) -> Option<String> {
     let trimmed = dir.trim_end_matches(['/', '\\']);
     let last = trimmed.rsplit(['/', '\\']).next()?;
     let name = last.trim();

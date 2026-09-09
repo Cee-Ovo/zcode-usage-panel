@@ -23,6 +23,7 @@ use crate::engine::now_ms;
 use crate::settings::{LauncherSettings, Settings};
 
 use super::antigravity::{self, InstallPaths, LocalTransport, UreqLocalTransport};
+use super::claude_code::ClaudeCodeProvider;
 use super::codex::CodexProvider;
 use super::dsh::DshProvider;
 use super::history::{HistoryHealth, QuotaHistory};
@@ -31,11 +32,15 @@ use super::secrets::{
     KeyringStorage, MemoryStorage, SecretStorage, SecretErrorKind, KEY_VOLCENGINE_AK,
     KEY_VOLCENGINE_SK,
 };
+use super::session_index::{
+    build_summaries, split_prefixed, PREFIX_CLAUDE_CODE, PREFIX_CODEX, PREFIX_DSH,
+};
 use super::volcengine::{self, UreqTransport};
 use super::zlauncher::{Launcher, PlatformProcOps};
 use super::{
     LocalUsage, ProviderSnapshot, ProviderStatus, QuotaWindow, TokenBreakdown,
-    PROVIDER_ANTIGRAVITY, PROVIDER_CODEX, PROVIDER_DSH, PROVIDER_VOLCENGINE, PROVIDER_ZCODE,
+    PROVIDER_ANTIGRAVITY, PROVIDER_CLAUDE_CODE, PROVIDER_CODEX, PROVIDER_DSH,
+    PROVIDER_VOLCENGINE, PROVIDER_ZCODE,
 };
 
 /// Aggregate ZCode card data computed from the monitoring engine (local,
@@ -65,6 +70,7 @@ pub struct HubInner {
     pub snapshots: HashMap<String, ProviderSnapshot>,
     pub codex: CodexProvider,
     pub dsh: DshProvider,
+    pub claude_code: ClaudeCodeProvider,
     pub history: QuotaHistory,
     pub alert_memory: AlertMemory,
     pub alert_log: Vec<AlertEvent>,
@@ -113,11 +119,14 @@ impl ProviderHub {
             .unwrap_or_default();
         let codex = CodexProvider::new(cache_dir.as_ref().map(|d| d.join("codex-usage-cache.json")));
         let dsh = DshProvider::new(cache_dir.as_ref().map(|d| d.join("dsh-usage-cache.json")));
+        let claude_code =
+            ClaudeCodeProvider::new(cache_dir.as_ref().map(|d| d.join("claude-code-usage-cache.json")));
         let launcher = Launcher::new(PlatformProcOps);
         let inner = HubInner {
             snapshots: HashMap::new(),
             codex,
             dsh,
+            claude_code,
             history,
             alert_memory,
             alert_log: Vec::new(),
@@ -128,6 +137,7 @@ impl ProviderHub {
                 PROVIDER_ZCODE,
                 PROVIDER_CODEX,
                 PROVIDER_DSH,
+                PROVIDER_CLAUDE_CODE,
                 PROVIDER_ANTIGRAVITY,
                 PROVIDER_VOLCENGINE,
             ]
@@ -239,6 +249,7 @@ impl ProviderHub {
                     PROVIDER_ZCODE,
                     PROVIDER_CODEX,
                     PROVIDER_DSH,
+                    PROVIDER_CLAUDE_CODE,
                     PROVIDER_ANTIGRAVITY,
                     PROVIDER_VOLCENGINE,
                 ]
@@ -267,6 +278,7 @@ impl ProviderHub {
                     let base = match id.as_str() {
                         PROVIDER_CODEX => settings.providers.codex_refresh_ms,
                         PROVIDER_DSH => settings.providers.dsh_refresh_ms,
+                        PROVIDER_CLAUDE_CODE => settings.providers.claude_code_refresh_ms,
                         PROVIDER_ANTIGRAVITY => settings.providers.antigravity_refresh_ms,
                         PROVIDER_VOLCENGINE => settings.providers.volcengine_refresh_ms,
                         _ => 30_000,
@@ -339,6 +351,24 @@ impl ProviderHub {
                         .unwrap_or_else(super::dsh::default_home);
                     inner.dsh.with_home(home);
                     Some(inner.dsh.poll(now))
+                }
+            }
+            PROVIDER_CLAUDE_CODE => {
+                if !settings.providers.claude_code_enabled {
+                    let mut s = ProviderSnapshot::empty(id, ProviderStatus::Disabled, now);
+                    s.source = "已在本软件设置中禁用".into();
+                    Some(s)
+                } else {
+                    let mut inner = self.inner.lock().unwrap();
+                    let home = settings
+                        .providers
+                        .claude_code_home
+                        .as_ref()
+                        .filter(|s| !s.is_empty())
+                        .map(std::path::PathBuf::from)
+                        .unwrap_or_else(super::claude_code::default_home);
+                    inner.claude_code.with_home(home);
+                    Some(inner.claude_code.poll(now))
                 }
             }
             PROVIDER_ANTIGRAVITY => {
@@ -452,6 +482,7 @@ impl ProviderHub {
                 let interval = match id {
                     PROVIDER_CODEX => settings.providers.codex_refresh_ms,
                     PROVIDER_DSH => settings.providers.dsh_refresh_ms,
+                    PROVIDER_CLAUDE_CODE => settings.providers.claude_code_refresh_ms,
                     PROVIDER_ANTIGRAVITY => settings.providers.antigravity_refresh_ms,
                     PROVIDER_VOLCENGINE => settings.providers.volcengine_refresh_ms,
                     _ => 30_000,
@@ -590,8 +621,9 @@ impl ProviderHub {
             PROVIDER_ZCODE => 0,
             PROVIDER_CODEX => 1,
             PROVIDER_DSH => 2,
-            PROVIDER_ANTIGRAVITY => 3,
-            _ => 4,
+            PROVIDER_CLAUDE_CODE => 3,
+            PROVIDER_ANTIGRAVITY => 4,
+            _ => 5,
         });
         v
     }
@@ -645,6 +677,129 @@ impl ProviderHub {
     pub fn history_health(&self) -> HistoryHealth {
         let inner = self.inner.lock().unwrap();
         inner.history.health()
+    }
+
+    // -- unified multi-source session / dashboard queries ---------------------
+
+    /// One local provider's `(prefix, session contributions)`.
+    fn local_contribs<'a>(
+        inner: &'a HubInner,
+        provider: &str,
+    ) -> Option<(&'static str, Vec<super::session_index::SessionContrib<'a>>)> {
+        match provider {
+            PROVIDER_CODEX => Some((PREFIX_CODEX, inner.codex.contribs())),
+            PROVIDER_DSH => Some((PREFIX_DSH, inner.dsh.contribs())),
+            PROVIDER_CLAUDE_CODE => Some((PREFIX_CLAUDE_CODE, inner.claude_code.contribs())),
+            _ => None,
+        }
+    }
+
+    /// Prefixed session summaries of one local provider (cx- / cc- / dsh-).
+    pub fn local_session_summaries(&self, provider: &str) -> Vec<crate::zcode::aggregate::SessionSummary> {
+        let inner = self.inner.lock().unwrap();
+        match Self::local_contribs(&inner, provider) {
+            Some((prefix, contribs)) => build_summaries(prefix, &contribs),
+            None => Vec::new(),
+        }
+    }
+
+    /// All local providers' prefixed session summaries (callers gate on the
+    /// provider being enabled in settings).
+    pub fn all_local_session_summaries(&self) -> Vec<crate::zcode::aggregate::SessionSummary> {
+        let inner = self.inner.lock().unwrap();
+        let mut out = Vec::new();
+        for (provider, prefix) in [
+            (PROVIDER_CODEX, PREFIX_CODEX),
+            (PROVIDER_DSH, PREFIX_DSH),
+            (PROVIDER_CLAUDE_CODE, PREFIX_CLAUDE_CODE),
+        ] {
+            if let Some((_, contribs)) = Self::local_contribs(&inner, provider) {
+                out.extend(build_summaries(prefix, &contribs));
+            }
+        }
+        out
+    }
+
+    /// Session detail for a prefixed id (`cx-…` / `cc-…` / `dsh-…`);
+    /// `None` for ZCode ids (the engine serves those) or unknown sessions.
+    pub fn local_session_detail(&self, session_id: &str) -> Option<crate::commands::SessionDetailDto> {
+        let (provider, raw) = split_prefixed(session_id)?;
+        let inner = self.inner.lock().unwrap();
+        let (prefix, contribs) = Self::local_contribs(&inner, provider)?;
+        let parts = super::session_index::build_detail(prefix, raw, &contribs)?;
+        Some(crate::commands::SessionDetailDto {
+            summary: parts.summary,
+            buckets: parts.buckets,
+            models: parts.models,
+        })
+    }
+
+    /// ZCode-density dashboard view for one local provider, computed from
+    /// the same record schema and aggregation helpers as the ZCode section
+    /// (speed stats stay honestly unavailable — these logs record no
+    /// TTFT/duration fields).
+    pub fn local_usage_view(
+        &self,
+        provider: &str,
+        range_key: &str,
+        include_trend: bool,
+        pricing: &crate::zcode::pricing::PricingManager,
+    ) -> Option<crate::commands::UsageViewDto> {
+        let now = now_ms();
+        let inner = self.inner.lock().unwrap();
+        let (prefix, contribs) = Self::local_contribs(&inner, provider)?;
+        let mut records: Vec<crate::zcode::usage::UsageRecord> = contribs
+            .iter()
+            .flat_map(|c| c.records.iter().cloned())
+            .collect();
+        records.sort_by_key(|r| r.ts_ms);
+        let summaries = build_summaries(prefix, &contribs);
+        let latest = summaries.first().cloned();
+        let latest_records: Vec<crate::zcode::usage::UsageRecord> = latest
+            .as_ref()
+            .and_then(|s| split_prefixed(&s.id).map(|(_, raw)| raw.to_string()))
+            .map(|raw| {
+                contribs
+                    .iter()
+                    .filter(|c| c.session_id == raw)
+                    .flat_map(|c| c.records.iter().cloned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        Some(super::session_index::build_usage_view(
+            &records,
+            latest,
+            &latest_records,
+            range_key,
+            include_trend,
+            pricing,
+            now,
+        ))
+    }
+
+    /// In-range records of one local provider (for provider-scoped cost
+    /// details). The span is resolved against the provider's own history
+    /// start — never the ZCode engine's. Returns an empty vec for unknown
+    /// providers.
+    pub fn local_cost_detail(
+        &self,
+        provider: &str,
+        range_key: &str,
+        model: &str,
+        pricing: &crate::zcode::pricing::PricingManager,
+        now: i64,
+    ) -> crate::zcode::pricing::CostDetailDto {
+        let inner = self.inner.lock().unwrap();
+        let Some((_, contribs)) = Self::local_contribs(&inner, provider) else {
+            return pricing.cost_detail(model, &[]);
+        };
+        let mut records: Vec<crate::zcode::usage::UsageRecord> = contribs
+            .iter()
+            .flat_map(|c| c.records.iter().cloned())
+            .collect();
+        records.sort_by_key(|r| r.ts_ms);
+        let detail = super::session_index::records_for_range(&records, range_key, now);
+        pricing.cost_detail(model, &detail)
     }
 }
 
@@ -737,7 +892,7 @@ mod tests {
         let (hub, rx) = ProviderHub::new(Some(dir.path().to_path_buf()), "test");
         drop(rx);
         let inner = hub.inner.lock().unwrap();
-        assert_eq!(inner.next_due.len(), 5);
+        assert_eq!(inner.next_due.len(), 6);
         assert!(inner.history.schema_version() >= 1);
     }
 

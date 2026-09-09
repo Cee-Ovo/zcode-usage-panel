@@ -458,6 +458,7 @@ pub fn read_new(state: &mut SqliteSourceState) -> Result<Vec<UsageRecord>, Sourc
                     // output_tokens (computed == input + output even for
                     // reasoning rows).
                     reasoning_in_output: table.map.total.is_some(),
+                    schema_exclusive: None,
                     source_file: source_file.clone(),
                 });
                 max_wm = max_wm.max(wm);

@@ -80,11 +80,10 @@ impl Agg {
 
         if let Some(cr) = r.cache_read_tokens {
             let cw = r.cache_write_tokens.unwrap_or(0);
-            let inclusive = r.input_tokens >= cr + cw && r.input_tokens > 0;
-            let total = if inclusive {
-                r.input_tokens.max(cr)
-            } else {
+            let total = if r.input_is_exclusive() {
                 r.input_tokens + cr + cw
+            } else {
+                r.input_tokens.max(cr)
             };
             self.hit_cached += cr;
             self.hit_input_total += total;
@@ -417,6 +416,7 @@ mod tests {
             status: None,
             total_override: None,
             reasoning_in_output: false,
+            schema_exclusive: None,
             source_file: "t".into(),
         }
     }
@@ -437,6 +437,7 @@ mod tests {
             status: status.map(str::to_string),
             total_override: None,
             reasoning_in_output: false,
+            schema_exclusive: None,
             source_file: "t".into(),
         }
     }

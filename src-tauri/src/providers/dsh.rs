@@ -9,7 +9,9 @@
 //! Event envelope (per the official persistence catalog):
 //! `{ "type": <kind>, "seq": <monotonic int>, "time": <unix epoch ms>,
 //!    "data": { … } }`. We consume:
-//! - `request/header`  → `data.header.config.{provider, model}` (call config),
+//! - `request/header`  → `data.header.config.{provider, model}` (call config,
+//!   and `cwd` when the harness records it — probed defensively, never
+//!   invented),
 //! - `model/selection` → current model when the header shape differs,
 //! - `assistant/message` → `data.usage` (TokenUsage:
 //!   `inputTokens` = uncached input only, `outputTokens` already contains
@@ -19,6 +21,10 @@
 //! - `total_tokens` is derived as input + cacheRead + cacheWrite + output —
 //!   the documented disjoint fields. `reasoningTokens` is a subset of output
 //!   and is displayed separately, never added again.
+//! - Every usage event is also appended to the file's `records` history in
+//!   the shared [`crate::zcode::usage::UsageRecord`] schema (see
+//!   `local_usage::DSH_DELTA`), powering the multi-source Sessions page and
+//!   per-source dashboards with the exact same caliber machinery as ZCode.
 //! - No speed/TTFT metrics: DSH stream records carry timing, but their
 //!   on-disk shape is not publicly documented, so nothing is derived.
 //! - Raw `.jsonl` files advance by byte watermark; framed `.jsonl.zstd`
@@ -32,10 +38,12 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::local_usage::{aggregate_local, prune_recent, SessionUsage, TotalTokenUsage, UsageEvent};
+use super::local_usage::{
+    aggregate_local, delta_record, SessionUsage, TotalTokenUsage, DSH_DELTA,
+};
 use super::{ProviderSnapshot, ProviderStatus};
 
-const DSH_CACHE_SCHEMA_VERSION: u32 = 1;
+const DSH_CACHE_SCHEMA_VERSION: u32 = 2;
 /// Defensive cap for one framed session log (they are per-session files; a
 /// bigger value means we are looking at something that is not a DSH log).
 const MAX_FRAMED_FILE: u64 = 64 * 1024 * 1024;
@@ -163,6 +171,19 @@ impl DshProvider {
         }
     }
 
+    /// All per-file session accumulators (for the multi-source session
+    /// index). Files without usage are filtered by the index, not here.
+    pub fn sessions(&self) -> impl Iterator<Item = &SessionUsage> {
+        self.cache.files.values().map(|entry| &entry.session)
+    }
+
+    /// Session contributions for the unified index.
+    pub fn contribs(&self) -> Vec<super::session_index::SessionContrib<'_>> {
+        self.sessions()
+            .map(super::session_index::SessionContrib::from_usage)
+            .collect()
+    }
+
     /// One poll cycle. Never panics; every failure degrades to a status.
     pub fn poll(&mut self, now_ms: i64) -> ProviderSnapshot {
         let mut snap = ProviderSnapshot::empty(super::PROVIDER_DSH, ProviderStatus::Ok, now_ms);
@@ -211,10 +232,6 @@ impl DshProvider {
             }
         }
         self.cache.saved_at_ms = now_ms;
-        changed |= prune_recent(
-            self.cache.files.values_mut().map(|entry| &mut entry.session),
-            now_ms,
-        );
 
         let has_events = self
             .cache
@@ -340,6 +357,7 @@ fn advance_file(path: &Path, entry: &mut DshFileEntry, framed: bool) -> Result<b
         entry.size = 0;
         return Ok(false);
     }
+    let source_file = path.to_string_lossy().into_owned();
     if framed {
         if size == entry.size {
             return Ok(false); // unchanged framed log — nothing to decode
@@ -366,7 +384,7 @@ fn advance_file(path: &Path, entry: &mut DshFileEntry, framed: bool) -> Result<b
                 entry.last_seq = seq;
             }
             grew = true;
-            apply_event_line(line, &mut entry.session);
+            apply_event_line(line, &mut entry.session, &source_file);
         }
         entry.size = size;
         return Ok(grew);
@@ -395,7 +413,7 @@ fn advance_file(path: &Path, entry: &mut DshFileEntry, framed: bool) -> Result<b
         }
         offset += n as u64;
         grew = true;
-        apply_event_line(&line, &mut entry.session);
+        apply_event_line(&line, &mut entry.session, &source_file);
     }
     entry.offset = offset;
     entry.size = size;
@@ -519,8 +537,31 @@ fn model_from_payload(data: &serde_json::Value) -> Option<String> {
     None
 }
 
+/// Workspace path from a header-ish payload. The DSH catalog does not
+/// document a `cwd` field; common shapes are probed defensively and the
+/// value is used only when the harness genuinely recorded one.
+fn cwd_from_payload(data: &serde_json::Value) -> Option<String> {
+    const PATHS: &[&[&str]] = &[
+        &["header", "cwd"],
+        &["header", "config", "cwd"],
+        &["config", "cwd"],
+        &["cwd"],
+        &["header", "workspace"],
+    ];
+    for path in PATHS {
+        if let Some(c) = data
+            .pointer(&path.iter().map(|s| format!("/{s}")).collect::<String>())
+            .and_then(|x| x.as_str())
+            .filter(|c| !c.trim().is_empty())
+        {
+            return Some(c.to_string());
+        }
+    }
+    None
+}
+
 /// Apply one JSONL line to the session accumulator (pure, no I/O).
-fn apply_event_line(line: &str, session: &mut SessionUsage) {
+fn apply_event_line(line: &str, session: &mut SessionUsage, source_file: &str) {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
         return;
     };
@@ -534,6 +575,9 @@ fn apply_event_line(line: &str, session: &mut SessionUsage) {
         "request/header" | "model/selection" => {
             if let Some(model) = model_from_payload(&data) {
                 session.model = model;
+            }
+            if session.project_path.is_none() {
+                session.project_path = cwd_from_payload(&data);
             }
         }
         "assistant/message" => {
@@ -554,11 +598,15 @@ fn apply_event_line(line: &str, session: &mut SessionUsage) {
                 .or_default()
                 .add(&usage);
             *session.model_requests.entry(model.clone()).or_insert(0) += 1;
-            session.recent.push(UsageEvent {
+            session.records.push(delta_record(
+                &usage,
+                DSH_DELTA,
                 ts_ms,
-                model,
-                delta: usage,
-            });
+                &model,
+                &session.session_id,
+                session.project_path.as_deref(),
+                source_file,
+            ));
             if session.first_ts_ms == 0 || (ts_ms > 0 && ts_ms < session.first_ts_ms) {
                 session.first_ts_ms = ts_ms;
             }
@@ -578,7 +626,7 @@ pub fn session_from_lines(session_id: &str, lines: &[String]) -> SessionUsage {
         ..Default::default()
     };
     for line in lines {
-        apply_event_line(line, &mut session);
+        apply_event_line(line, &mut session, "test");
     }
     session
 }
@@ -673,7 +721,35 @@ mod tests {
         assert_eq!(session.all_time.reasoning_output_tokens, 200);
         assert_eq!(session.all_time.cached_input_tokens, 100);
         assert_eq!(session.model_requests["deepseek-chat"], 1);
-        assert_eq!(session.recent[0].ts_ms, T0 + 4_000);
+        assert_eq!(session.records[0].ts_ms, T0 + 4_000);
+        // Shared-schema record keeps the same caliber + nested reasoning.
+        assert_eq!(session.records[0].display_total_tokens(), 1000 + 100 + 40 + 500);
+        assert_eq!(session.records[0].generated_tokens(), 500);
+        assert_eq!(session.records[0].cache_read_tokens, Some(100));
+    }
+
+    #[test]
+    fn cwd_in_header_becomes_project_path() {
+        let with_cwd = serde_json::json!({
+            "type": "request/header",
+            "seq": 0,
+            "time": T0,
+            "data": { "header": { "config": { "model": "deepseek-chat" }, "cwd": "D:\\work\\panel" } }
+        })
+        .to_string();
+        let session = session_from_lines(
+            "sess-abc",
+            &[with_cwd, assistant_event(1, T0 + 1_000, 10, 5, 0)],
+        );
+        assert_eq!(session.project_path.as_deref(), Some("D:\\work\\panel"));
+        assert_eq!(session.records[0].project.as_deref(), Some("D:\\work\\panel"));
+        // Headers without a cwd field stay honestly empty.
+        let bare = session_from_lines(
+            "sess-def",
+            &[header_event(0, T0, "deepseek-chat"), assistant_event(1, T0, 10, 5, 0)],
+        );
+        assert_eq!(bare.project_path, None);
+        assert_eq!(bare.records[0].project, None);
     }
 
     #[test]
@@ -689,7 +765,7 @@ mod tests {
         );
         assert_eq!(session.model_requests["deepseek-chat"], 1);
         assert_eq!(session.model_requests["deepseek-reasoner"], 1);
-        assert_eq!(session.recent[1].model, "deepseek-reasoner");
+        assert_eq!(session.records[1].model, "deepseek-reasoner");
     }
 
     #[test]

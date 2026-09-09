@@ -227,6 +227,7 @@ mod tests {
             status: None,
             total_override: None,
             reasoning_in_output: false,
+            schema_exclusive: None,
             source_file: "t".into(),
         }
     }

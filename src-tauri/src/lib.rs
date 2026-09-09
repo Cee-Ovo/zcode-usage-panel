@@ -46,6 +46,7 @@ pub fn run() {
             commands::get_bootstrap,
             commands::get_dashboard,
             commands::get_usage_view,
+            commands::get_local_usage_view,
             commands::get_trend,
             commands::get_sessions,
             commands::get_sessions_page,

@@ -50,6 +50,15 @@ pub struct UsageRecord {
     /// reasoning again in that case.
     #[serde(default)]
     pub reasoning_in_output: bool,
+    /// Whether `input_tokens` **excludes** the cache tokens, when the
+    /// source's caliber is provider-documented and therefore known.
+    /// `None` = unknown ⇒ auto-detected from the numbers (the legacy ZCode
+    /// paths, whose behavior must not change). Knowing the schema beats the
+    /// heuristic: a genuinely exclusive source with a large fresh input
+    /// (input ≥ cache sums) would otherwise be misread as inclusive and its
+    /// cache tokens silently dropped from totals and hit-rate denominators.
+    #[serde(default)]
+    pub schema_exclusive: Option<bool>,
     /// Originating file path (for the data-source inspector).
     pub source_file: String,
 }
@@ -62,7 +71,9 @@ impl UsageRecord {
     /// cache); inclusive schemas (input already contains cache_read — and
     /// cache_write, as in ZCode `model_usage`) must not add them again, or
     /// heavily cached traffic doubles. Reasoning is added only when the
-    /// schema does not already nest it inside `output_tokens`.
+    /// schema does not already nest it inside `output_tokens`. Exclusivity
+    /// comes from `schema_exclusive` when the source documents it, else the
+    /// numeric heuristic.
     pub fn display_total_tokens(&self) -> u64 {
         if let Some(total) = self.total_override {
             return total;
@@ -70,10 +81,13 @@ impl UsageRecord {
         let cache_extra = match self.cache_read_tokens {
             Some(cr) => {
                 let cw = self.cache_write_tokens.unwrap_or(0);
-                if self.input_tokens >= cr + cw && self.input_tokens > 0 {
-                    0
-                } else {
+                let exclusive = self
+                    .schema_exclusive
+                    .unwrap_or_else(|| !(self.input_tokens >= cr + cw && self.input_tokens > 0));
+                if exclusive {
                     cr + cw
+                } else {
+                    0
                 }
             }
             None => self.cache_write_tokens.unwrap_or(0),
@@ -97,6 +111,21 @@ impl UsageRecord {
         } else {
             self.output_tokens
                 .saturating_add(self.reasoning_tokens.unwrap_or(0))
+        }
+    }
+
+    /// Input-side cache classification for the hit-rate denominator:
+    /// documented schema wins, numeric heuristic only as the fallback.
+    pub fn input_is_exclusive(&self) -> bool {
+        match self.schema_exclusive {
+            Some(known) => known,
+            None => match self.cache_read_tokens {
+                Some(cr) => {
+                    let cw = self.cache_write_tokens.unwrap_or(0);
+                    !(self.input_tokens >= cr + cw && self.input_tokens > 0)
+                }
+                None => false,
+            },
         }
     }
 }
@@ -248,8 +277,8 @@ pub fn value_as_u64(v: &Value) -> Option<u64> {
     }
 }
 
-/// Parse a timestamp that may be epoch seconds, epoch milliseconds, an
-/// ISO-8601 / RFC-3339 string, or a numeric string.
+    /// Parse a timestamp that may be epoch seconds, epoch milliseconds, an
+    /// ISO-8601 / RFC-3339 string, or a numeric string.
 pub fn parse_ts(v: &Value) -> Option<i64> {
     match v {
         Value::Number(n) => n
@@ -383,6 +412,7 @@ pub fn extract_record(line: &Value, ctx: &LineContext) -> Result<Option<UsageRec
         // JSONL schemas (Claude-style) report reasoning as a separate
         // usage field outside output_tokens; ZCode SQLite sets this itself.
         reasoning_in_output: false,
+        schema_exclusive: None,
         source_file: ctx.source_file.clone(),
     }))
 }
@@ -446,6 +476,40 @@ mod tests {
         assert_eq!(rec.reasoning_tokens, Some(60));
         assert_eq!(rec.cache_read_tokens, Some(800));
         assert_eq!(rec.ts_ms, 1809607200_000);
+    }
+
+    #[test]
+    fn documented_schema_beats_the_numeric_heuristic() {
+        // Claude-style exclusive record where the fresh input happens to be
+        // larger than the cache sums: the heuristic would misread it as
+        // inclusive and silently drop the cache from the total.
+        let mut r = UsageRecord {
+            ts_ms: 1,
+            model: "m".into(),
+            session_id: None,
+            project: None,
+            input_tokens: 350,
+            output_tokens: 35,
+            reasoning_tokens: None,
+            cache_read_tokens: Some(50),
+            cache_write_tokens: Some(10),
+            duration_ms: None,
+            ttft_ms: None,
+            status: None,
+            total_override: None,
+            reasoning_in_output: false,
+            schema_exclusive: None,
+            source_file: "t".into(),
+        };
+        assert_eq!(r.display_total_tokens(), 350 + 35, "heuristic path unchanged");
+        r.schema_exclusive = Some(true);
+        assert_eq!(r.display_total_tokens(), 350 + 35 + 50 + 10);
+        assert!(r.input_is_exclusive());
+        // Inclusive pinned: cache never added, regardless of magnitudes.
+        r.schema_exclusive = Some(false);
+        r.input_tokens = 5;
+        assert_eq!(r.display_total_tokens(), 5 + 35);
+        assert!(!r.input_is_exclusive());
     }
 
     #[test]

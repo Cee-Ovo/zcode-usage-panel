@@ -1,16 +1,27 @@
 //! OpenAI Codex provider — 100% local official-client data.
 //!
 //! Data source: the Codex CLI's own session rollouts
-//! `<CODEX_HOME>/sessions/YYYY/MM/DD/rollout-*.jsonl` (append-only JSONL).
-//! Each line is `{timestamp, ordinal, type, payload}`; we consume:
-//! - `session_meta` → session id / start time,
+//! `<CODEX_HOME>/sessions/YYYY/MM/DD/rollout-*.jsonl` (append-only JSONL),
+//! plus everything the CLI moved to `<CODEX_HOME>/archived_sessions/` —
+//! archived history is still real local usage and is scanned with the same
+//! incremental watermarks. Each line is `{timestamp, ordinal, type, payload}`;
+//! we consume:
+//! - `session_meta` → session id / start time / `cwd` (workspace path),
 //! - `turn_context` → model name,
+//! - `event_msg{type:"user_message"}` / `response_item{role:"user"}` → the
+//!     first real user input, used as the session title (same convention as
+//!     the ZCode session table: generated summary or first user input),
 //! - `event_msg{type:"token_count"}` →
 //!     `payload.info.total_token_usage` (cumulative per session — the LAST
 //!     event per file is the session total, no double counting), and
 //!     `payload.rate_limits` (the official quota the Codex backend pushed:
 //!     5-hour window + weekly usage percent, reset timestamps, credits,
 //!     plan type).
+//!
+//! Every counter delta is also appended to the file's `records` history in
+//! the shared [`crate::zcode::usage::UsageRecord`] schema (see
+//! `local_usage::CODEX_DELTA`), which is what feeds the multi-source
+//! Sessions page and the per-source dashboards.
 //!
 //! Plan quota (official rate limits) and local harness token usage are kept
 //! in SEPARATE fields of the snapshot — never merged into one metric.
@@ -25,11 +36,11 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::local_usage::{
-    aggregate_local, prune_recent, FileEntry, SessionUsage, TotalTokenUsage, UsageEvent,
+    aggregate_local, delta_record, FileEntry, SessionUsage, TotalTokenUsage, CODEX_DELTA,
 };
 use super::{ProviderSnapshot, ProviderStatus, QuotaWindow};
 
-const CODEX_CACHE_SCHEMA_VERSION: u32 = 2;
+const CODEX_CACHE_SCHEMA_VERSION: u32 = 3;
 
 // ---------------------------------------------------------------------------
 // Wire types (subset of Codex's rollout schema)
@@ -152,6 +163,19 @@ impl CodexProvider {
         }
     }
 
+    /// All per-file session accumulators (for the multi-source session
+    /// index). Files without usage are filtered by the index, not here.
+    pub fn sessions(&self) -> impl Iterator<Item = &SessionUsage> {
+        self.cache.files.values().map(|entry| &entry.session)
+    }
+
+    /// Session contributions for the unified index.
+    pub fn contribs(&self) -> Vec<super::session_index::SessionContrib<'_>> {
+        self.sessions()
+            .map(super::session_index::SessionContrib::from_usage)
+            .collect()
+    }
+
     /// One poll cycle. Never panics; every failure degrades to a status.
     pub fn poll(&mut self, now_ms: i64) -> ProviderSnapshot {
         let mut snap = ProviderSnapshot::empty(super::PROVIDER_CODEX, ProviderStatus::Ok, now_ms);
@@ -174,6 +198,7 @@ impl CodexProvider {
 
         let mut files = Vec::new();
         collect_jsonl(&self.home.join("sessions"), &mut files);
+        collect_jsonl(&self.home.join("archived_sessions"), &mut files);
         files.sort();
 
         let live: std::collections::HashSet<String> = files
@@ -187,7 +212,20 @@ impl CodexProvider {
         let mut best_rl = self.cache.last_rate_limits.take();
         for path in &files {
             let key = path.to_string_lossy().into_owned();
+            // Rollouts without a session_meta line (truncated archives) keep
+            // the file stem as the honest id — never an invented one.
+            // Resolved before the entry borrow so a failed read can still
+            // drop the key from the cache below.
+            let needs_id = self
+                .cache
+                .files
+                .get(&key)
+                .map(|e| e.session.session_id.is_empty())
+                .unwrap_or(true);
             let entry = self.cache.files.entry(key).or_default();
+            if needs_id {
+                entry.session.session_id = fallback_session_id(path);
+            }
             match advance_file(path, entry, &mut best_rl) {
                 Ok(grew) => changed |= grew,
                 Err(why) => {
@@ -201,10 +239,6 @@ impl CodexProvider {
         }
         self.cache.last_rate_limits = best_rl;
         self.cache.saved_at_ms = now_ms;
-        changed |= prune_recent(
-            self.cache.files.values_mut().map(|entry| &mut entry.session),
-            now_ms,
-        );
 
         snap.local_usage = Some(aggregate_local(
             self.cache.files.values().map(|entry| &entry.session),
@@ -265,6 +299,16 @@ pub fn default_home() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(".codex"))
 }
 
+/// Session id fallback from the file name: rollout files embed the session
+/// id in their stem (`rollout-<ts>-<uuid>.jsonl`); the stem is real on-disk
+/// data, just less pretty than the `session_meta` id.
+fn fallback_session_id(path: &Path) -> String {
+    path.file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "codex-session".to_string())
+}
+
 fn window_from(w: &RateLimitWindow, key: &str, label: &str) -> QuotaWindow {
     QuotaWindow {
         key: key.into(),
@@ -304,6 +348,7 @@ fn advance_file(
     let mut reader = BufReader::new(f);
     let mut grew = false;
     let mut offset = entry.offset;
+    let source_file = path.to_string_lossy().into_owned();
     loop {
         let mut line = String::new();
         let Ok(n) = reader.read_line(&mut line) else {
@@ -317,14 +362,19 @@ fn advance_file(
         }
         offset += n as u64;
         grew = true;
-        apply_line(&line, &mut entry.session, best_rl);
+        apply_line(&line, &mut entry.session, best_rl, &source_file);
     }
     entry.offset = offset;
     entry.complete = entry.offset == size;
     Ok(grew)
 }
 
-fn apply_line(line: &str, session: &mut SessionUsage, best_rl: &mut Option<(i64, RateLimits)>) {
+fn apply_line(
+    line: &str,
+    session: &mut SessionUsage,
+    best_rl: &mut Option<(i64, RateLimits)>,
+    source_file: &str,
+) {
     if !line.contains("\"type\"") {
         return;
     }
@@ -346,6 +396,12 @@ fn apply_line(line: &str, session: &mut SessionUsage, best_rl: &mut Option<(i64,
                 .and_then(|s| s.as_str())
                 .unwrap_or_default()
                 .to_string();
+            if session.project_path.is_none() {
+                session.project_path = p
+                    .get("cwd")
+                    .and_then(|c| c.as_str())
+                    .map(str::to_string);
+            }
             if session.first_ts_ms == 0 {
                 session.first_ts_ms = ts_ms;
             }
@@ -358,8 +414,24 @@ fn apply_line(line: &str, session: &mut SessionUsage, best_rl: &mut Option<(i64,
                 session.model = m.to_string();
             }
         }
+        Some("response_item") => {
+            // First user input as the session title — the same convention as
+            // the ZCode session table (generated summary or first user
+            // input). Real text only; nothing is invented.
+            if session.title.is_none() {
+                session.title = first_user_text(&v["payload"]);
+            }
+        }
         Some("event_msg") => {
             let p = &v["payload"];
+            if p.get("type").and_then(|t| t.as_str()) == Some("user_message") {
+                if session.title.is_none() {
+                    session.title = p
+                        .get("message")
+                        .and_then(|m| m.as_str())
+                        .and_then(|s| normalize_title(s));
+                }
+            }
             if p.get("type").and_then(|t| t.as_str()) == Some("token_count") {
                 if let Some(t) = p.get("info").and_then(|i| i.get("total_token_usage")) {
                     if let Ok(parsed) = serde_json::from_value::<TotalTokenUsage>(t.clone()) {
@@ -374,11 +446,15 @@ fn apply_line(line: &str, session: &mut SessionUsage, best_rl: &mut Option<(i64,
                             &delta,
                         );
                         *session.model_requests.entry(model.clone()).or_default() += 1;
-                        session.recent.push(UsageEvent {
+                        session.records.push(delta_record(
+                            &delta,
+                            CODEX_DELTA,
                             ts_ms,
-                            model,
-                            delta,
-                        });
+                            &model,
+                            &session.session_id,
+                            session.project_path.as_deref(),
+                            source_file,
+                        ));
                         session.totals = parsed; // cumulative — last wins
                         session.responses += 1;
                         if ts_ms > session.last_ts_ms {
@@ -397,6 +473,46 @@ fn apply_line(line: &str, session: &mut SessionUsage, best_rl: &mut Option<(i64,
         }
         _ => {}
     }
+}
+
+/// User text from a `response_item` message payload (content is a list of
+/// typed parts; only plain text counts). Synthetic / XML-ish command bodies
+/// are skipped — they are not a human-written session topic.
+fn first_user_text(payload: &serde_json::Value) -> Option<String> {
+    if payload.get("type").and_then(|t| t.as_str()) != Some("message") {
+        return None;
+    }
+    if payload.get("role").and_then(|r| r.as_str()) != Some("user") {
+        return None;
+    }
+    let text = payload
+        .get("content")?
+        .as_array()?
+        .iter()
+        .filter_map(|part| {
+            let t = part.get("type").and_then(|t| t.as_str())?;
+            if t == "text" || t == "input_text" {
+                part.get("text").and_then(|x| x.as_str())
+            } else {
+                None
+            }
+        })
+        .find(|s| !s.trim().is_empty())?;
+    normalize_title(text)
+}
+
+/// Trim / sanity-cap a candidate title. Truncation is presentation, not
+/// fabrication — the full text stays available in the source file.
+fn normalize_title(s: &str) -> Option<String> {
+    let s = s.trim();
+    if s.is_empty() || s.starts_with('<') {
+        return None;
+    }
+    let mut out = String::from(s);
+    if out.chars().count() > 300 {
+        out = out.chars().take(300).collect();
+    }
+    Some(out)
 }
 
 fn collect_jsonl(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -643,7 +759,7 @@ mod tests {
         assert!(advance_file(&p, &mut entry, &mut rl).unwrap());
         assert_eq!(entry.session.totals.total_tokens, 0);
         assert_eq!(entry.session.all_time.total_tokens, 0);
-        assert!(entry.session.recent.is_empty());
+        assert!(entry.session.records.is_empty());
         assert_eq!(entry.session.session_id, "s1");
     }
 
@@ -764,16 +880,18 @@ mod tests {
             &token_event_line("2026-08-29T13:43:45Z", 100, 100),
             &mut session,
             &mut rate_limits,
+            "f.jsonl",
         );
         apply_line(
             &token_event_line("2026-08-29T13:44:45Z", 40, 40),
             &mut session,
             &mut rate_limits,
+            "f.jsonl",
         );
 
         assert_eq!(session.responses, 2);
         assert_eq!(session.all_time.total_tokens, 140);
-        assert_eq!(session.recent[1].delta.total_tokens, 40);
+        assert_eq!(session.records[1].display_total_tokens(), 40);
         assert_eq!(session.model_requests["gpt-5.6-sol"], 2);
     }
 
@@ -788,12 +906,14 @@ mod tests {
             &token_event_line("2026-08-29T13:43:45Z", 100, 100),
             &mut session,
             &mut rate_limits,
+            "f.jsonl",
         );
         session.model = "gpt-5.6-luna".into();
         apply_line(
             &token_event_line("2026-08-29T13:44:45Z", 150, 150),
             &mut session,
             &mut rate_limits,
+            "f.jsonl",
         );
 
         assert_eq!(session.model_totals["gpt-5.6-sol"].total_tokens, 100);
@@ -803,10 +923,10 @@ mod tests {
     }
 
     #[test]
-    fn old_cache_schema_is_rebuilt_and_persisted_as_v2() {
+    fn old_cache_schema_is_rebuilt_and_persisted_as_v3() {
         let dir = tempfile::tempdir().unwrap();
         let cache_path = dir.path().join("codex-cache.json");
-        std::fs::write(&cache_path, r#"{"schema_version":1,"files":{}}"#).unwrap();
+        std::fs::write(&cache_path, r#"{"schema_version":2,"files":{}}"#).unwrap();
         let (_home_dir, home) = tmp_home();
 
         let mut provider = CodexProvider::new(Some(cache_path.clone()));
@@ -820,38 +940,83 @@ mod tests {
     }
 
     #[test]
-    fn recent_events_are_pruned_without_changing_all_time_totals() {
-        let now = 1_800_000_000_000i64;
-        let session = SessionUsage {
-            all_time: total(60),
-            recent: vec![
-                UsageEvent {
-                    ts_ms: now - 31 * 24 * 60 * 60_000,
-                    model: "sol".into(),
-                    delta: total(20),
-                },
-                UsageEvent {
-                    ts_ms: now - 2 * 24 * 60 * 60_000,
-                    model: "sol".into(),
-                    delta: total(40),
-                },
-            ],
-            ..Default::default()
-        };
-        let mut files: HashMap<String, FileEntry> = HashMap::from([(
-            "rollout.jsonl".into(),
-            FileEntry {
-                session,
-                ..Default::default()
-            },
-        )]);
+    fn full_event_history_is_retained_across_polls() {
+        // Session detail views and "all"-range dashboards need the complete
+        // record history — nothing is pruned after 30 days anymore.
+        let (_dir, home) = tmp_home();
+        let old_ts = "2026-01-02T10:00:00.000Z";
+        let line = token_event_line(old_ts, 10, 24);
+        write_rollout(&home, "rollout-old.jsonl", &[meta_line(), turn_line(), line]);
+        let mut p = CodexProvider::new(None);
+        p.with_home(home);
+        let snap = p.poll(1_800_000_000_000);
+        let lu = snap.local_usage.unwrap();
+        assert_eq!(lu.all_time.total_tokens, 24);
+        let session = p.sessions().next().unwrap();
+        assert_eq!(session.records.len(), 1);
+        assert_eq!(session.records[0].ts_ms.to_string(), chrono::DateTime::parse_from_rfc3339(old_ts).unwrap().timestamp_millis().to_string());
+    }
 
-        assert!(prune_recent(
-            files.values_mut().map(|entry| &mut entry.session),
-            now
-        ));
-        assert_eq!(files["rollout.jsonl"].session.recent.len(), 1);
-        assert_eq!(files["rollout.jsonl"].session.all_time.total_tokens, 60);
+    #[test]
+    fn archived_sessions_are_scanned_and_counted() {
+        let (_dir, home) = tmp_home();
+        // Active session under sessions/, archived one under archived_sessions/.
+        write_rollout(
+            &home,
+            "rollout-live.jsonl",
+            &[meta_line(), turn_line(), token_line(100, 214)],
+        );
+        let archived = home.join("archived_sessions").join("2026").join("05");
+        std::fs::create_dir_all(&archived).unwrap();
+        std::fs::write(
+            archived.join("rollout-archived.jsonl"),
+            [meta_line(), turn_line(), token_line(50, 164)].join("\n") + "\n",
+        )
+        .unwrap();
+        let mut p = CodexProvider::new(None);
+        p.with_home(home);
+        let snap = p.poll(1_788_030_000_000);
+        let lu = snap.local_usage.unwrap();
+        assert_eq!(lu.sessions, 2);
+        assert_eq!(lu.all_time.total_tokens, 214 + 164);
+    }
+
+    #[test]
+    fn cwd_and_first_user_message_become_project_and_title() {
+        let (_dir, home) = tmp_home();
+        let meta_with_cwd = r#"{"timestamp":"2026-08-29T13:43:37.330Z","ordinal":1,"type":"session_meta","payload":{"session_id":"s-cwd","cwd":"D:\\work\\crawler_Xianyu"}}"#;
+        let user_line = r#"{"timestamp":"2026-08-29T13:43:38.000Z","ordinal":2,"type":"event_msg","payload":{"type":"user_message","message":"修复反爬限流的重试策略"}}"#;
+        write_rollout(
+            &home,
+            "rollout-titled.jsonl",
+            &[meta_with_cwd.into(), user_line.into(), turn_line(), token_line(10, 124)],
+        );
+        let mut p = CodexProvider::new(None);
+        p.with_home(home);
+        p.poll(1_788_030_000_000);
+        let session = p.sessions().next().unwrap();
+        assert_eq!(session.title.as_deref(), Some("修复反爬限流的重试策略"));
+        assert_eq!(session.project_path.as_deref(), Some("D:\\work\\crawler_Xianyu"));
+        // The record carries the workspace too (session-level context).
+        assert_eq!(session.records[0].project.as_deref(), Some("D:\\work\\crawler_Xianyu"));
+    }
+
+    #[test]
+    fn rollout_without_meta_gets_file_stem_as_session_id() {
+        let (_dir, home) = tmp_home();
+        write_rollout(
+            &home,
+            "rollout-2026-08-29T13-43-37-ab12cd34.jsonl",
+            &[turn_line(), token_line(5, 119)],
+        );
+        let mut p = CodexProvider::new(None);
+        p.with_home(home);
+        p.poll(1_788_030_000_000);
+        let session = p.sessions().next().unwrap();
+        assert_eq!(
+            session.session_id,
+            "rollout-2026-08-29T13-43-37-ab12cd34"
+        );
     }
 
     #[test]

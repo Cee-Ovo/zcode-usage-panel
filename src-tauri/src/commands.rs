@@ -258,7 +258,10 @@ fn active_session_of(inner: &crate::engine::EngineInner) -> Option<ActiveSession
     })
 }
 
-fn model_rows(records: &[UsageRecord]) -> Vec<ModelRow> {
+/// Model rows with shares + per-model speed stats. Shared by the ZCode
+/// dashboard and the local-source dashboard views (same shapes, same
+/// caliber).
+pub(crate) fn model_rows(records: &[UsageRecord]) -> Vec<ModelRow> {
     let stats = group_by_model(records);
     let speed_by_name = speed_by_model(records);
     let grand: u64 = stats.iter().map(|m| m.agg.total_tokens()).sum();
@@ -426,11 +429,24 @@ pub fn get_sessions_page(
     state: State<'_, SharedAppState>,
 ) -> SessionsPageDto {
     let mut inner = state.engine.inner.lock().unwrap();
-    let sessions: Vec<SessionSummary> = if inner.store.is_empty() {
+    let mut sessions: Vec<SessionSummary> = if inner.store.is_empty() {
         inner.boot.as_ref().map(|boot| boot.sessions.clone()).unwrap_or_default()
     } else {
         inner.store.session_summaries().to_vec()
     };
+    drop(inner);
+    // Local sources merge into the same list with their display prefixes
+    // (cx- / cc- / dsh-); only enabled providers contribute sessions.
+    let providers = current_settings(&state).providers;
+    if providers.codex_enabled {
+        sessions.extend(state.hub.local_session_summaries(crate::providers::PROVIDER_CODEX));
+    }
+    if providers.dsh_enabled {
+        sessions.extend(state.hub.local_session_summaries(crate::providers::PROVIDER_DSH));
+    }
+    if providers.claude_code_enabled {
+        sessions.extend(state.hub.local_session_summaries(crate::providers::PROVIDER_CLAUDE_CODE));
+    }
     query_sessions_page(
         &sessions,
         &query,
@@ -442,6 +458,11 @@ pub fn get_sessions_page(
 
 #[tauri::command]
 pub fn get_session_detail(session_id: String, state: State<'_, SharedAppState>) -> Option<SessionDetailDto> {
+    // Prefixed ids (cx- / cc- / dsh-) route to the owning local provider;
+    // unprefixed ids stay on the ZCode engine.
+    if crate::providers::session_index::split_prefixed(&session_id).is_some() {
+        return state.hub.local_session_detail(&session_id);
+    }
     let inner = state.engine.inner.lock().unwrap();
     let summary = inner.store.session_summary(&session_id)?;
     let from = summary.agg.first_ts_ms?;
@@ -455,6 +476,21 @@ pub fn get_session_detail(session_id: String, state: State<'_, SharedAppState>) 
     let buckets = bucketize(&mine, from, to + 1, 48.min(mine.len().max(1)));
     let models = group_by_model(&mine);
     Some(SessionDetailDto { summary, buckets, models })
+}
+
+/// ZCode-density dashboard view for one local source (codex / dsh /
+/// claude-code): aggregates, model rows, trend buckets and the official-
+/// price cost estimate over the shared record schema.
+#[tauri::command]
+pub fn get_local_usage_view(
+    provider: String,
+    range_key: String,
+    include_trend: bool,
+    state: State<'_, SharedAppState>,
+) -> Option<UsageViewDto> {
+    state
+        .hub
+        .local_usage_view(&provider, &range_key, include_trend, &state.pricing)
 }
 
 #[tauri::command]
@@ -682,9 +718,21 @@ pub fn cost_summary(range: String, state: State<'_, SharedAppState>) -> CostSumm
     state.pricing.cost_summary(r.key(), records)
 }
 
-/// Per-line cost breakdown for one model over a range.
+/// Per-line cost breakdown for one model over a range. `provider`
+/// (optional) scopes the records to a local source (codex / dsh /
+/// claude-code); without it the ZCode engine's records are used.
 #[tauri::command]
-pub fn cost_detail(range: String, model: String, state: State<'_, SharedAppState>) -> CostDetailDto {
+pub fn cost_detail(
+    range: String,
+    model: String,
+    provider: Option<String>,
+    state: State<'_, SharedAppState>,
+) -> CostDetailDto {
+    if let Some(provider) = provider.as_deref() {
+        return state
+            .hub
+            .local_cost_detail(provider, &range, &model, &state.pricing, now_ms());
+    }
     let r = TrendRange::from_key(&range).unwrap_or(TrendRange::TodayHourly);
     let now = now_ms();
     let inner = state.engine.inner.lock().unwrap();

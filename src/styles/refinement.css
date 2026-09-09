@@ -134,6 +134,8 @@
 .zup-frame .metric-card .value { font-size: 22px; margin-top: 8px; line-height: 1.25; letter-spacing: -.025em; color: var(--zup-text-1); }
 .zup-frame .metric-card .sub { font-size: 10px; line-height: 1.6; margin-top: 7px; color: var(--zup-text-3); }
 .zup-frame .dashboard-metrics { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+/* 指标卡区块与下方模型排行之间拉开呼吸间距(两者是普通文档流,默认无间距)。 */
+.zup-frame .dashboard-section > .dashboard-metrics { margin-bottom: 12px; }
 .zup-frame .dashboard-metrics > .metric-card { padding: 14px 12px; }
 .zup-frame .dashboard-metrics > :is(.metric-card--primary, .metric-card--cost) { grid-column: span 3; padding: 21px 24px; }
 /* 普通指标卡固定占 2 列:加入响应速度卡后保持 3×3 + (命中率+活跃模型) 满排节奏。 */

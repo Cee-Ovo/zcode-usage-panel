@@ -519,8 +519,8 @@ impl ProviderHub {
             snap.error = Some(e.clone());
         }
         snap.windows.push(QuotaWindow {
-            key: "today_tokens".into(),
-            label: "今日 Token".into(),
+            key: "today_tokens".to_string(),
+            label: "今日 Token".to_string(),
             used_quota: Some(card.today_tokens as f64),
             unit: Some("tokens".into()),
             ..Default::default()
@@ -894,6 +894,145 @@ mod tests {
         let inner = hub.inner.lock().unwrap();
         assert_eq!(inner.next_due.len(), 6);
         assert!(inner.history.schema_version() >= 1);
+    }
+
+    /// End-to-end fixture: one Codex rollout, one DSH log, one Claude Code
+    /// transcript → prefixed summaries, detail routing, and a ZCode-density
+    /// usage view per source, all through the shared hub query surface.
+    #[test]
+    fn local_session_queries_serve_all_three_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        let (hub, _rx) = ProviderHub::new(Some(dir.path().to_path_buf()), "test");
+        let root = dir.path().to_path_buf();
+
+        // Timestamps are computed from the real clock so range resolution
+        // against `now_ms()` always sees them in the recent past.
+        let now = now_ms();
+        let rfc = |ago_ms: i64| {
+            chrono::DateTime::from_timestamp_millis(now - ago_ms)
+                .unwrap()
+                .to_rfc3339()
+        };
+
+        // --- Codex rollout (inclusive input + source total) ---
+        let codex_home = root.join("codex-home");
+        std::fs::create_dir_all(codex_home.join("sessions").join("2026").join("09").join("10")).unwrap();
+        std::fs::write(
+            codex_home.join("sessions/2026/09/10/rollout-x.jsonl"),
+            [
+                format!(r#"{{"timestamp":"{}","type":"session_meta","payload":{{"session_id":"codex-s1","cwd":"D:\\work\\panel"}}}}"#, rfc(3_600_000)),
+                format!(r#"{{"timestamp":"{}","type":"turn_context","payload":{{"model":"gpt-5.6-sol"}}}}"#, rfc(3_599_000)),
+                format!(r#"{{"timestamp":"{}","type":"event_msg","payload":{{"type":"token_count","info":{{"total_token_usage":{{"input_tokens":1000,"cached_input_tokens":10,"cache_write_input_tokens":0,"output_tokens":100,"reasoning_output_tokens":14,"total_tokens":1114}}}}}}}}"#, rfc(3_598_000)),
+            ]
+            .join("\n")
+            + "\n",
+        )
+        .unwrap();
+
+        // --- DSH log (exclusive input, reasoning nested in output) ---
+        let dsh_home = root.join("dsh-home");
+        std::fs::create_dir_all(dsh_home.join("sessions").join("dsh-s1")).unwrap();
+        std::fs::write(
+            dsh_home.join("sessions/dsh-s1/log.jsonl"),
+            [
+                format!(r#"{{"type":"request/header","seq":0,"time":{},"data":{{"header":{{"config":{{"model":"deepseek-chat"}},"cwd":"/home/u/dshproj"}}}}}}"#, now - 2 * 3_600_000),
+                format!(r#"{{"type":"assistant/message","seq":1,"time":{},"data":{{"usage":{{"inputTokens":1000,"outputTokens":500,"reasoningTokens":200,"cacheReadTokens":100,"cacheWriteTokens":40}}}}}}"#, now - 3_599_000),
+            ]
+            .join("\n")
+            + "\n",
+        )
+        .unwrap();
+
+        // --- Claude Code transcript (exclusive input, streaming duplicate) ---
+        let claude_home = root.join("claude-home");
+        let munged = claude_home.join("projects").join("C--Users-27632-Desktop-panel");
+        std::fs::create_dir_all(&munged).unwrap();
+        let t0 = rfc(2 * 3_600_000);
+        let assistant = |mid: &str, input: u64, out: u64, cr: u64, cw: u64| {
+            serde_json::json!({
+                "type": "assistant",
+                "cwd": "C:\\Users\\27632\\Desktop\\panel",
+                "sessionId": "cc-s1",
+                "timestamp": t0,
+                "message": {
+                    "id": mid,
+                    "model": "claude-sonnet-5",
+                    "usage": { "input_tokens": input, "cache_read_input_tokens": cr, "cache_creation_input_tokens": cw, "output_tokens": out }
+                }
+            })
+            .to_string()
+        };
+        std::fs::write(
+            munged.join("cc-s1.jsonl"),
+            [
+                serde_json::json!({"type":"summary","summary":"真实摘要标题","leafUuid":"u"}).to_string(),
+                assistant("m1", 100, 10, 0, 0),
+                assistant("m1", 350, 35, 50, 10),
+            ]
+            .join("\n")
+            + "\n",
+        )
+        .unwrap();
+
+        {
+            let mut inner = hub.inner.lock().unwrap();
+            inner.codex.with_home(codex_home);
+            inner.codex.poll(now);
+            inner.dsh.with_home(dsh_home);
+            inner.dsh.poll(now);
+            inner.claude_code.with_home(claude_home);
+            inner.claude_code.poll(now);
+        }
+
+        // Prefixed summaries with honest caliber totals and real metadata.
+        let codex_summaries = hub.local_session_summaries(PROVIDER_CODEX);
+        assert_eq!(codex_summaries.len(), 1);
+        assert_eq!(codex_summaries[0].id, "cx-codex-s1");
+        assert_eq!(codex_summaries[0].project.as_deref(), Some("panel"));
+        assert_eq!(codex_summaries[0].agg.total_tokens(), 1114);
+
+        let dsh_summaries = hub.local_session_summaries(PROVIDER_DSH);
+        assert_eq!(dsh_summaries.len(), 1);
+        assert_eq!(dsh_summaries[0].id, "dsh-dsh-s1");
+        assert_eq!(dsh_summaries[0].project.as_deref(), Some("dshproj"));
+        // input + cacheRead + cacheWrite + output (reasoning nested).
+        assert_eq!(dsh_summaries[0].agg.total_tokens(), 1000 + 100 + 40 + 500);
+        assert_eq!(dsh_summaries[0].agg.reasoning.sum, 200);
+
+        let cc_summaries = hub.local_session_summaries(PROVIDER_CLAUDE_CODE);
+        assert_eq!(cc_summaries.len(), 1);
+        assert_eq!(cc_summaries[0].id, "cc-cc-s1");
+        assert_eq!(cc_summaries[0].title.as_deref(), Some("真实摘要标题"));
+        // Streaming duplicate collapsed to the last snapshot (exclusive).
+        assert_eq!(cc_summaries[0].agg.total_tokens(), 350 + 35 + 50 + 10);
+        assert_eq!(cc_summaries[0].agg.requests, 1);
+
+        // Detail routing works per prefix.
+        let detail = hub.local_session_detail("cc-cc-s1").expect("detail");
+        assert_eq!(detail.summary.title.as_deref(), Some("真实摘要标题"));
+        assert_eq!(detail.models.len(), 1);
+        assert!(!detail.buckets.is_empty());
+        assert!(hub.local_session_detail("cx-missing").is_none());
+        assert!(hub.local_session_detail("sess_zcode-id").is_none(), "ZCode ids are not routed here");
+
+        // Usage views reuse the ZCode shapes; speed stays honestly empty.
+        let pricing = crate::zcode::pricing::PricingManager::new(None);
+        for provider in [PROVIDER_CODEX, PROVIDER_DSH, PROVIDER_CLAUDE_CODE] {
+            let view = hub
+                .local_usage_view(provider, "all", true, &pricing)
+                .expect("view");
+            assert_eq!(view.dash.restored, false);
+            assert!(view.dash.data_error.is_none());
+            assert_eq!(view.dash.speed.ttft_samples, 0);
+            assert!(view.dash.speed.speed_tps.is_none());
+            assert!(view.trend.is_some());
+            assert!(view.dash.active_session.is_some());
+            assert!(view.cost_summary.total_tokens > 0);
+        }
+        let codex_view = hub.local_usage_view(PROVIDER_CODEX, "all", false, &pricing).unwrap();
+        assert_eq!(codex_view.dash.agg.total_tokens(), 1114);
+        assert_eq!(codex_view.dash.models[0].name, "gpt-5.6-sol");
+        assert!(codex_view.trend.is_none());
     }
 
     #[test]

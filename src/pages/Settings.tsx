@@ -32,6 +32,7 @@ const SECTIONS = [
   ["zcode", "ZCode"],
   ["codex", "Codex"],
   ["dsh", "DSH"],
+  ["claude", "Claude Code"],
   ["antigravity", "Antigravity"],
   ["volcengine", "火山引擎"],
   ["pricing", "API Pricing"],
@@ -374,6 +375,55 @@ export function SettingsPage() {
         <div className="desc">
           口径:usage 来自 session 日志中的 assistant 消息;reasoning 已包含在 Output 中,总量不重复累计。
           DSH 日志没有可核实的单价与首 token 时间字段,分区不展示金额和速度指标。
+        </div>
+      </Glass>
+
+      {/* ---------------- Claude Code ---------------- */}
+      <Glass as="section" className="panel settings-section sample-glass" material="regular" renderer="css" interactive={false} id="sec-claude">
+        <div className="panel-title">
+          Claude Code
+          <span className="badge-note">本地 session 转写统计 · 离线读取 · 无官方额度</span>
+        </div>
+        <div className="switch-row">
+          <div>
+            <div>启用 Claude Code 本地 Token 监控</div>
+            <div className="desc">
+              读取 {`<用户目录>/.claude/projects`} 下各项目的 session 转写(JSONL,离线不联网);统计各时间范围的
+              Input / Output / Cache(读/写)Token 与 Sessions 页会话明细,不计入 ZCode 总 Token
+            </div>
+          </div>
+          <Switch
+            label={null}
+            aria-label="启用 Claude Code"
+            checked={draft.providers.claudeCodeEnabled}
+            onCheckedChange={(v) => prov({ claudeCodeEnabled: v })}
+          />
+        </div>
+        <div className="switch-row">
+          <div>
+            <div>Claude Code 配置目录覆盖</div>
+            <div className="desc">
+              留空使用默认 {`<用户目录>/.claude`} 或 CLAUDE_CONFIG_DIR 环境变量;未安装 Claude Code 时这里会显示「未检测到数据目录」
+            </div>
+          </div>
+        </div>
+        <TextField
+          label={null}
+          value={draft.providers.claudeCodeHome ?? ""}
+          onChange={(e) => prov({ claudeCodeHome: e.target.value === "" ? null : e.target.value })}
+          placeholder="D:\\claude-data"
+        />
+        <IntervalRow
+          label="本地统计刷新间隔"
+          value={draft.providers.claudeCodeRefreshMs}
+          onChange={(v) => prov({ claudeCodeRefreshMs: v })}
+          min={30}
+          max={3600}
+        />
+        <div className="desc">
+          口径:usage 来自转写中的 assistant message.usage(官方口径 input 不含 cache,读/写单列);
+          同一 message.id 的流式重复行按最后一条计数。Claude Code 没有本地可查的官方套餐额度接口,
+          服务额度区不展示其官方额度卡(不编造);费用仅为官方 API 单价估算。
         </div>
       </Glass>
 

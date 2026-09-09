@@ -143,6 +143,9 @@ export function SessionsPage() {
       </header>
       <div className="page-toolbar sessions-toolbar" style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
         <SearchField label="搜索 session / 会话名 / 项目 / 模型" value={inputQuery} onValueChange={setInputQuery} placeholder="搜索 session / 会话名 / 项目 / 模型…" />
+        <span className="muted" style={{ fontSize: 11 }} title="同一列表合并四个本地数据源:ZCode 无前缀;Codex 为 cx-;Claude Code 为 cc-;DSH 为 dsh-。搜索 / 排序 / 详情对四个来源统一生效。">
+          四源:ZCode · cx-Codex · cc-Claude Code · dsh-DSH
+        </span>
         <span className="muted" style={{ fontSize: 11 }}>{result ? `${result.total} sessions` : "加载 sessions…"}</span>
         <label className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
           排序{" "}
@@ -160,9 +163,9 @@ export function SessionsPage() {
 
       <Glass className="panel sample-glass page-surface sessions-surface" material="regular" renderer="css" interactive={false}>
         <div className="session-row table-head" style={{ cursor: "default" }}>
-          <span title="完整 Session ID 见单元格悬停">Session</span>
-          <span title="真实会话标题(ZCode 本地记录),完整内容见悬停">会话名</span>
-          <span title="项目文件夹名,完整路径见悬停">项目</span>
+          <span title="Session 标识,来源前缀:无前缀=ZCode、cx-=Codex、cc-=Claude Code、dsh-=DSH;完整 ID 见悬停">Session</span>
+          <span title="真实会话标题(各源本地记录:ZCode session 表 / Codex 首条用户消息 / Claude Code 摘要或首条用户消息),完整内容见悬停">会话名</span>
+          <span title="项目文件夹名(自各源记录的工作目录还原,兼容两种分隔符),完整路径见悬停">项目</span>
           <span title="完整模型名见悬停">模型</span>
           <span style={{ textAlign: "right" }}>输入</span><span style={{ textAlign: "right" }}>输出</span>
           <span style={{ textAlign: "right" }}>推理</span><span style={{ textAlign: "right" }}>缓存</span>
@@ -171,7 +174,7 @@ export function SessionsPage() {
         {loading && !result && <div className="empty-state">正在加载 Session…</div>}
         {error && <div className="empty-state" role="alert">加载 Session 失败：{error}<br /><FxButton size="small" onClick={refresh}>重试</FxButton></div>}
         {!loading && !error && result?.items.length === 0 && (
-          <div className="empty-state">没有匹配的 Session。<br /><span style={{ fontSize: 11 }}>数据来源为 ZCode 本地记录;若列表为空,请到「设置 → 数据源详情」检查目录。</span></div>
+          <div className="empty-state">没有匹配的 Session。<br /><span style={{ fontSize: 11 }}>数据来源为 ZCode / Codex / Claude Code / DSH 的本地记录;某来源为空时可在「设置 → 数据源」检查对应目录。</span></div>
         )}
         <AnimatePresence initial={false}>
           {result?.items.map((s) => (
@@ -270,8 +273,7 @@ function SessionLine({ s, onOpen }: { s: SessionSummary; onOpen: (sessionId: str
       </span>
       <span title={s.models.join(", ") || "无模型记录"} className="muted clip-cell">
         {s.models.length > 0 ? truncateHead(s.models.join(", "), 14) : "—"}
-      </span>
-      <span className="num">{formatTokens(s.agg.input)}</span><span className="num">{formatTokens(s.agg.output)}</span>
+      </span>      <span className="num">{formatTokens(s.agg.input)}</span><span className="num">{formatTokens(s.agg.output)}</span>
       <span className="num">{s.agg.reasoning.present > 0 ? formatTokens(s.agg.reasoning.sum) : "—"}</span>
       <span className="num">{s.agg.cacheRead.present > 0 ? formatTokens(s.agg.cacheRead.sum) : "—"}</span>
       <span className="num" style={{ fontWeight: 600 }}>{formatTokens(totalTokens(s.agg))}</span>

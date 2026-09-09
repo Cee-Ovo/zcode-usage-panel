@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Glass, SegmentedControl, Button } from "open-glass-ui";
 import { AnimatePresence, motion } from "motion/react";
 import { AnimatedNumber } from "../components/AnimatedNumber";
@@ -74,39 +74,16 @@ function readStoredSection(): SectionKey {
   return "zcode";
 }
 
-export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) => void }) {
-  const dash = useStore((s) => s.dash);
-  const rangeKey = useStore((s) => s.rangeKey);
-  const trend = useStore((s) => s.trend);
-  const visibleModels = useStore((s) => s.trendVisibleModels);
-  const costSummary = useStore((s) => s.costSummary);
-  const alerts = useStore((s) => s.alerts);
-  const health = useStore((s) => s.health);
-  const [expanded, setExpanded] = useState(false);
+export const DashboardPage = memo(function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) => void }) {
+  const hasDash = useStore((s) => s.dash !== null);
   const [section, setSection] = useState<SectionKey>(readStoredSection);
   const [compact, setCompact] = useState(() => {
     try { return localStorage.getItem("zup.compact") === "true"; } catch { return false; }
   });
-  const [costModalModel, setCostModalModel] = useState<string | null>(null);
 
-  const refreshAction = useAction(
-    async () => {
-      await api.refreshNow();
-    },
-    { okText: "已刷新" },
-  );
-
-  if (!dash) {
+  if (!hasDash) {
     return <div className="empty-state">正在加载 ZCode 用量数据…</div>;
   }
-
-  const agg = dash.agg;
-  const hit = cacheHitRate(agg);
-  const models = expanded ? dash.models : dash.models.slice(0, 3);
-  const costByModel = new Map<string, ModelCost>(
-    (costSummary?.models ?? []).map((m) => [m.name, m]),
-  );
-  const unknownCount = costSummary?.unknownModels.length ?? 0;
 
   return (
     <motion.div
@@ -134,43 +111,7 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
         </span>
       </div>}
       {/* range selector */}
-      <div className="dashboard-toolbar">
-        <SegmentedControl
-          aria-label="时间范围"
-          value={rangeKey}
-          onValueChange={(v) => onRangeChange(v)}
-          items={RANGE_KEYS.map((k) => ({ value: k, label: RANGE_LABELS[k] }))}
-        />
-        {dash.restored && <span className="badge-note">缓存快照 · 同步中</span>}
-        {dash.rangeKey !== rangeKey && (
-          <span role="status" className="badge-note">
-            待更新 · 仍显示{RANGE_LABELS[dash.rangeKey as keyof typeof RANGE_LABELS] ?? dash.rangeKey}数据
-          </span>
-        )}
-        <FxButton variant="quiet" size="small" aria-pressed={compact} onClick={() => {
-          const next = !compact;
-          setCompact(next);
-          try { localStorage.setItem("zup.compact", String(next)); } catch { /* optional preference */ }
-        }}>
-          {compact ? "显示详细指标" : "精简视图"}
-        </FxButton>
-        {health.level === "error" && (
-          <span className="badge-note" title={dash.dataError ?? health.detail ?? undefined}>
-            数据源异常
-          </span>
-        )}
-        <span style={{ marginLeft: "auto" }}>
-          <FxButton
-            variant="quiet"
-            size="small"
-            action={refreshAction}
-            busyLabel="刷新中…"
-            title="立即刷新 ZCode 数据与所有 Provider"
-          >
-            立即刷新
-          </FxButton>
-        </span>
-      </div>
+      <DashboardToolbar compact={compact} onCompactChange={setCompact} onRangeChange={onRangeChange} />
 
       {/* section switcher: ZCode / Codex / DSH 数据源分区 */}
       <div className="dashboard-sections" role="tablist" aria-label="数据源分区">
@@ -189,27 +130,136 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
         </span>
       </div>
 
-      <AnimatePresence mode="wait" initial={false}>
+      <div className="dashboard-section">
         {section === "zcode" ? (
-          <motion.div
-            key="section-zcode"
-            className="dashboard-section"
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-          >
+          <ZCodeSection compact={compact} />
+        ) : section === "codex" ? (
+          <LocalUsagePanel
+            provider="codex"
+            title="Codex 本地 Token 用量"
+            subtitle="session 日志统计 · 不计入 ZCode 总 Token"
+            explain={CODEX_EXPLAIN}
+            modelSource="codex"
+            notEnabledHint="在「设置 → Codex」中开启后,这里会显示本地 session 日志统计。"
+            footnote="来自本地 Codex session 日志 · 与官方套餐额度(5 小时/周)分开统计 · 不等于实际 Billing · 不计入 ZCode 总 Token"
+            detailTitle="查看 Codex 详情(官方额度 / 模型明细)"
+          />
+        ) : (
+          <LocalUsagePanel
+            provider="dsh"
+            title="DSH 本地 Token 用量"
+            subtitle="DeepSeek Harness session 日志 · 不计入 ZCode 总 Token"
+            explain={DSH_EXPLAIN}
+            modelSource="dsh"
+            notEnabledHint="在「设置 → DSH」中开启后,这里会显示 DeepSeek Harness 本地 session 日志统计。"
+            footnote="来自本地 DSH session 日志 · 不等于实际 Billing · 不计入 ZCode 总 Token · 未找到日志时可在「设置 → DSH」指定路径"
+            detailTitle="查看 DSH 详情(模型明细)"
+          />
+        )}
+      </div>
+
+      {/* AI service quotas (Codex / Antigravity / Volcengine + ZCode card) */}
+      <QuotaSection />
+    </motion.div>
+  );
+});
+
+const DashboardToolbar = memo(function DashboardToolbar({
+  compact,
+  onCompactChange,
+  onRangeChange,
+}: {
+  compact: boolean;
+  onCompactChange: (compact: boolean) => void;
+  onRangeChange: (key: string) => void;
+}) {
+  const rangeKey = useStore((s) => s.rangeKey);
+  const dashboardRestored = useStore((s) => s.dash?.restored ?? false);
+  const dashboardDataError = useStore((s) => s.dash?.dataError ?? null);
+  const healthDetail = useStore((s) => s.health.detail);
+  const refreshError = useStore((s) => s.refresh.error);
+  const initializationError = useStore((s) => s.initializationError);
+  const dashboardRangeKey = useStore((s) => s.dash?.rangeKey ?? null);
+  const healthLevel = useStore((s) => s.health.level);
+  const refreshAction = useAction(
+    async () => {
+      await api.refreshNow();
+    },
+    { okText: "已刷新" },
+  );
+
+  return (
+    <div className="dashboard-toolbar">
+      <SegmentedControl
+        aria-label="时间范围"
+        value={rangeKey}
+        onValueChange={(v) => onRangeChange(v)}
+        items={RANGE_KEYS.map((k) => ({ value: k, label: RANGE_LABELS[k] }))}
+      />
+      {dashboardRestored && <span className="badge-note">缓存快照 · 同步中</span>}
+      {dashboardRangeKey !== null && dashboardRangeKey !== rangeKey && (
+        <span role="status" className="badge-note">
+          待更新 · 仍显示{RANGE_LABELS[dashboardRangeKey as keyof typeof RANGE_LABELS] ?? dashboardRangeKey}数据
+        </span>
+      )}
+      <FxButton variant="quiet" size="small" aria-pressed={compact} onClick={() => {
+        const next = !compact;
+        onCompactChange(next);
+        try { localStorage.setItem("zup.compact", String(next)); } catch { /* optional preference */ }
+      }}>
+        {compact ? "显示详细指标" : "精简视图"}
+      </FxButton>
+      {healthLevel === "error" && (
+        <span className="badge-note" title={dashboardDataError ?? healthDetail ?? refreshError ?? initializationError ?? undefined}>
+          数据源异常
+        </span>
+      )}
+      <span style={{ marginLeft: "auto" }}>
+        <FxButton
+          variant="quiet"
+          size="small"
+          action={refreshAction}
+          busyLabel="刷新中…"
+          title="立即刷新 ZCode 数据与所有 Provider"
+        >
+          立即刷新
+        </FxButton>
+      </span>
+    </div>
+  );
+});
+
+const ZCodeSection = memo(function ZCodeSection({ compact }: { compact: boolean }) {
+  const dash = useStore((s) => s.dash);
+  const rangeKey = useStore((s) => s.rangeKey);
+  const trend = useStore((s) => s.trend);
+  const visibleModels = useStore((s) => s.trendVisibleModels);
+  const costSummary = useStore((s) => s.costSummary);
+  const alerts = useStore((s) => s.alerts);
+  const [expanded, setExpanded] = useState(false);
+  const [costModalModel, setCostModalModel] = useState<string | null>(null);
+
+  if (!dash) return null;
+
+  const agg = dash.agg;
+  const hit = cacheHitRate(agg);
+  const models = expanded ? dash.models : dash.models.slice(0, 3);
+  const costByModel = new Map<string, ModelCost>(
+    (costSummary?.models ?? []).map((m) => [m.name, m]),
+  );
+  const unknownCount = costSummary?.unknownModels.length ?? 0;
+
+  return (
+    <>
       {/* core metrics (ZCode only — Codex / DSH local tokens get their own
           sections; official plan quotas live in the quota section) */}
-      <motion.div
+      <div
         key={rangeKey}
         className={`zup-grid metrics-grid dashboard-metrics${compact ? " is-compact" : ""}`}
-        variants={staggerContainer}
-        initial="initial"
-        animate="enter"
       >
         <MetricCard
           glass
+          layoutEnabled={false}
           className="metric-card--primary"
           label="ZCode 总 Token"
           value={<AnimatedNumber value={totalTokens(agg)} format={formatTokens} />}
@@ -218,6 +268,7 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
         />
         <MetricCard
           glass
+          layoutEnabled={false}
           className="metric-card--cost"
           label="API 等价花费"
           value={
@@ -237,16 +288,19 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
         {!compact && <>
         <MetricCard
           glass
+          layoutEnabled={false}
           label="Input Token"
           value={<AnimatedNumber value={agg.input} format={formatTokens} />}
         />
         <MetricCard
           glass
+          layoutEnabled={false}
           label="Output Token"
           value={<AnimatedNumber value={agg.output} format={formatTokens} />}
         />
         <MetricCard
           glass
+          layoutEnabled={false}
           label="Reasoning Token"
           value={
             agg.reasoning.present > 0 ? (
@@ -265,6 +319,7 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
         />
         <MetricCard
           glass
+          layoutEnabled={false}
           label="Cache Token"
           value={
             agg.cacheRead.present > 0 ? (
@@ -286,12 +341,14 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
         </>}
         <MetricCard
           glass
+          layoutEnabled={false}
           label="请求次数"
           value={<AnimatedNumber value={agg.requests} format={formatFull} />}
         />
         <SpeedCard speed={dash.speed} />
         <MetricCard
           glass
+          layoutEnabled={false}
           label="Cache Hit Rate"
           value={hit === null ? "unavailable" : formatPercent(hit)}
           unavailable={hit === null}
@@ -299,6 +356,7 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
         />
         <MetricCard
           glass
+          layoutEnabled={false}
           className="metric-card--model"
           label="活跃模型"
           value={
@@ -310,7 +368,7 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
             dash.models.length > 1 ? `共 ${dash.models.length} 个模型` : undefined
           }
         />
-      </motion.div>
+      </div>
 
       {/* Codex 本地 Token(独立于 ZCode 指标与官方额度) */}
       {/* top models */}
@@ -358,7 +416,6 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
           <AnimatePresence initial={false}>
             {alerts.slice(0, 3).map((a) => (
               <motion.div
-                layout="position"
                 variants={listItemVariants}
                 initial="initial"
                 animate="enter"
@@ -426,53 +483,6 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
         </div>
         <TrendChart trend={trend} visibleModels={visibleModels} />
       </Glass>
-          </motion.div>
-        ) : section === "codex" ? (
-          <motion.div
-            key="section-codex"
-            className="dashboard-section"
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-          >
-            <LocalUsagePanel
-              provider="codex"
-              title="Codex 本地 Token 用量"
-              subtitle="session 日志统计 · 不计入 ZCode 总 Token"
-              explain={CODEX_EXPLAIN}
-              modelSource="codex"
-              notEnabledHint="在「设置 → Codex」中开启后,这里会显示本地 session 日志统计。"
-              footnote="来自本地 Codex session 日志 · 与官方套餐额度(5 小时/周)分开统计 · 不等于实际 Billing · 不计入 ZCode 总 Token"
-              detailTitle="查看 Codex 详情(官方额度 / 模型明细)"
-            />
-          </motion.div>
-        ) : (
-          <motion.div
-            key="section-dsh"
-            className="dashboard-section"
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-          >
-            <LocalUsagePanel
-              provider="dsh"
-              title="DSH 本地 Token 用量"
-              subtitle="DeepSeek Harness session 日志 · 不计入 ZCode 总 Token"
-              explain={DSH_EXPLAIN}
-              modelSource="dsh"
-              notEnabledHint="在「设置 → DSH」中开启后,这里会显示 DeepSeek Harness 本地 session 日志统计。"
-              footnote="来自本地 DSH session 日志 · 不等于实际 Billing · 不计入 ZCode 总 Token · 未找到日志时可在「设置 → DSH」指定路径"
-              detailTitle="查看 DSH 详情(模型明细)"
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* AI service quotas (Codex / Antigravity / Volcengine + ZCode card) */}
-      <QuotaSection />
-
 
       <AnimatePresence>
         {costModalModel && (
@@ -487,9 +497,9 @@ export function DashboardPage({ onRangeChange }: { onRangeChange: (key: string) 
           />
         )}
       </AnimatePresence>
-    </motion.div>
+    </>
   );
-}
+});
 
 /** 响应速度卡:首字延迟均值 + 加权 tok/s;无样本时按惯例显示 unavailable。 */
 function SpeedCard({ speed }: { speed: SpeedStats | undefined }) {
@@ -499,6 +509,7 @@ function SpeedCard({ speed }: { speed: SpeedStats | undefined }) {
   return (
     <MetricCard
       glass
+      layoutEnabled={false}
       label="响应速度"
       value={
         available ? (
@@ -534,7 +545,6 @@ function ModelLine({
   const hit = cacheHitRate(row.agg);
   return (
     <motion.div
-      layout="position"
       variants={listItemVariants}
       initial="initial"
       animate="enter"

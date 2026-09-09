@@ -13,6 +13,7 @@ export function MetricCard({
   unavailable = false,
   className = "",
   glass = false,
+  layoutEnabled = true,
 }: {
   label: string;
   value: ReactNode;
@@ -21,15 +22,16 @@ export function MetricCard({
   unavailable?: boolean;
   className?: string;
   glass?: boolean;
+  layoutEnabled?: boolean;
 }) {
   const Surface = glass ? MotionGlass : motion.div;
   return (
     <Surface
       {...(glass ? { material: "regular" as const, renderer: "css" as const, interactive: false } : {})}
-      layout
-      variants={cardVariants}
+      layout={layoutEnabled}
+      variants={layoutEnabled ? cardVariants : undefined}
       whileHover={{ y: -1 }}
-      transition={softSpring}
+      transition={layoutEnabled ? softSpring : { duration: 0.12 }}
       className={`metric-card ${glass ? "sample-glass" : "liquid-metric"} ${className}`.trim()}
       title={hint}
       onPointerMove={(event) => {

@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 
 use super::aggregate::{Agg, SessionSummary};
+use super::session_meta::SessionMetaEntry;
 use super::usage::UsageRecord;
 
 #[derive(Clone, Debug, Default)]
@@ -20,6 +21,8 @@ struct SessionAcc {
 pub struct UsageStore {
     records: Vec<UsageRecord>,
     sessions: HashMap<String, SessionAcc>,
+    /// Session metadata sidecar (titles / workspace dirs) keyed by session id.
+    session_meta: HashMap<String, SessionMetaEntry>,
     sessions_cache: Option<Vec<SessionSummary>>,
     active_session: Option<(i64, String)>,
     pub total_ingested: u64,
@@ -97,11 +100,16 @@ impl UsageStore {
             let mut list: Vec<SessionSummary> = self
                 .sessions
                 .iter()
-                .map(|(id, acc)| SessionSummary {
-                    id: id.clone(),
-                    project: acc.project.clone(),
-                    models: acc.models.clone(),
-                    agg: acc.agg.clone(),
+                .map(|(id, acc)| {
+                    let (title, project, project_path) = self.resolve_meta_fields(id, acc);
+                    SessionSummary {
+                        id: id.clone(),
+                        title,
+                        project,
+                        project_path,
+                        models: acc.models.clone(),
+                        agg: acc.agg.clone(),
+                    }
                 })
                 .collect();
             list.sort_by(|a, b| b.agg.last_ts_ms.cmp(&a.agg.last_ts_ms).then_with(|| a.id.cmp(&b.id)));
@@ -118,12 +126,45 @@ impl UsageStore {
     /// Direct lookup avoids rebuilding/sorting the entire sessions list for
     /// every live dashboard refresh or single-session detail request.
     pub fn session_summary(&self, id: &str) -> Option<SessionSummary> {
-        self.sessions.get(id).map(|acc| SessionSummary {
-            id: id.to_string(),
-            project: acc.project.clone(),
-            models: acc.models.clone(),
-            agg: acc.agg.clone(),
+        self.sessions.get(id).map(|acc| {
+            let (title, project, project_path) = self.resolve_meta_fields(id, acc);
+            SessionSummary {
+                id: id.to_string(),
+                title,
+                project,
+                project_path,
+                models: acc.models.clone(),
+                agg: acc.agg.clone(),
+            }
         })
+    }
+
+    /// Merge the session-metadata sidecar. Returns true when anything changed
+    /// (cached summaries are invalidated so the new titles/projects surface).
+    pub fn apply_session_meta(&mut self, meta: HashMap<String, SessionMetaEntry>) -> bool {
+        if self.session_meta == meta {
+            return false;
+        }
+        self.session_meta = meta;
+        self.sessions_cache = None;
+        true
+    }
+
+    /// Resolve a session's display fields: record-level project (JSONL
+    /// sources) wins, then the metadata sidecar's real folder name.
+    fn resolve_meta_fields(
+        &self,
+        id: &str,
+        acc: &SessionAcc,
+    ) -> (Option<String>, Option<String>, Option<String>) {
+        let meta = self.session_meta.get(id);
+        (
+            meta.and_then(|m| m.title.clone()),
+            acc.project
+                .clone()
+                .or_else(|| meta.and_then(|m| m.project_name.clone())),
+            meta.and_then(|m| m.directory.clone()),
+        )
     }
 
     /// Usage records of one session within a time window (used for the
@@ -227,5 +268,69 @@ mod tests {
         let mut st = UsageStore::new();
         st.ingest(vec![rec(1000, "m", "s")]);
         assert!(st.range(2000, 0).is_empty());
+    }
+
+    fn meta(id: &str, title: Option<&str>, dir: Option<&str>) -> (String, SessionMetaEntry) {
+        (
+            id.into(),
+            SessionMetaEntry {
+                title: title.map(str::to_string),
+                directory: dir.map(str::to_string),
+                project_name: dir.and_then(|d| {
+                    let t = d.trim_end_matches('/');
+                    t.rsplit('/').next().map(|s| s.to_string())
+                }),
+            },
+        )
+    }
+
+    #[test]
+    fn session_meta_enriches_summaries_and_invalidates_cache() {
+        // sqlite-sourced sessions: records carry no project of their own.
+        let bare = |ts: i64, model: &str, session: &str| UsageRecord {
+            project: None,
+            ..rec(ts, model, session)
+        };
+        let mut st = UsageStore::new();
+        st.ingest(vec![bare(5000, "glm-5.3", "sess-1"), bare(6000, "m", "sess-2")]);
+
+        let before = st.session_summaries().to_vec();
+        assert!(before.iter().all(|s| s.title.is_none() && s.project.is_none()));
+
+        let mut m = std::collections::HashMap::new();
+        m.insert("sess-1".to_string(), meta("sess-1", Some("优化登录性能"), Some("/home/u/projects/panel")).1);
+        assert!(st.apply_session_meta(m), "changed meta must report true");
+        assert!(st.session_summary("sess-1").is_some());
+
+        let s1 = st.session_summary("sess-1").unwrap();
+        assert_eq!(s1.title.as_deref(), Some("优化登录性能"));
+        assert_eq!(s1.project.as_deref(), Some("panel"));
+        assert_eq!(s1.project_path.as_deref(), Some("/home/u/projects/panel"));
+        // sess-2 has no metadata row → stays honestly empty.
+        let s2 = st.session_summary("sess-2").unwrap();
+        assert_eq!(s2.title, None);
+        assert_eq!(s2.project_path, None);
+
+        // Same map again → no change, cache stays warm.
+        let mut same = std::collections::HashMap::new();
+        same.insert("sess-1".to_string(), meta("sess-1", Some("优化登录性能"), Some("/home/u/projects/panel")).1);
+        st.session_summaries(); // warm the cache
+        assert!(!st.apply_session_meta(same), "identical meta must report false");
+        assert!(st.sessions_cache.is_some(), "cache not invalidated by no-op");
+    }
+
+    #[test]
+    fn record_level_project_wins_over_meta_folder() {
+        // JSONL sources carry a real project string on the record itself.
+        let mut st = UsageStore::new();
+        let mut r = rec(5000, "m", "sess-1");
+        r.project = Some("proj-A".into());
+        st.ingest(vec![r]);
+        let mut m = std::collections::HashMap::new();
+        m.insert("sess-1".to_string(), meta("sess-1", Some("t"), Some("/x/panel")).1);
+        st.apply_session_meta(m);
+        let s = st.session_summary("sess-1").unwrap();
+        assert_eq!(s.project.as_deref(), Some("proj-A"));
+        assert_eq!(s.project_path.as_deref(), Some("/x/panel"));
     }
 }

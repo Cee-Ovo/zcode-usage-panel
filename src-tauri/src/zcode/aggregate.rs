@@ -358,11 +358,18 @@ pub fn speed_by_model(records: &[UsageRecord]) -> HashMap<String, SpeedStats> {
 // Sessions
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
     pub id: String,
+    /// Real session title from the ZCode CLI `session` table (generated
+    /// summary or first user input); `None` = no honest title available.
+    #[serde(default)]
+    pub title: Option<String>,
     pub project: Option<String>,
+    /// Full workspace directory path when known (tooltip / detail view).
+    #[serde(default)]
+    pub project_path: Option<String>,
     pub models: Vec<String>,
     pub agg: Agg,
 }
@@ -370,6 +377,29 @@ pub struct SessionSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_summary_deserializes_pre_title_snapshots() {
+        // Boot snapshots persisted before the title/projectPath fields existed
+        // must keep loading (serde fills the new fields with defaults).
+        let old = serde_json::json!({
+            "id": "sess-1",
+            "project": null,
+            "models": ["glm-5.3"],
+            "agg": {
+                "requests": 1, "input": 10, "output": 5,
+                "reasoning": {"sum": 0, "present": 0},
+                "cacheRead": {"sum": 0, "present": 0},
+                "cacheWrite": {"sum": 0, "present": 0},
+                "hitCached": 0, "hitInputTotal": 0,
+                "firstTsMs": 1, "lastTsMs": 2
+            }
+        });
+        let s: SessionSummary = serde_json::from_value(old).unwrap();
+        assert_eq!(s.id, "sess-1");
+        assert_eq!(s.title, None);
+        assert_eq!(s.project_path, None);
+    }
 
     fn rec(ts: i64, model: &str, input: u64, output: u64, cr: Option<u64>, cw: Option<u64>) -> UsageRecord {
         UsageRecord {

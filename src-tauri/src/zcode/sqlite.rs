@@ -139,7 +139,7 @@ impl SqliteSourceState {
     }
 }
 
-fn open_readonly(path: &Path) -> Result<Connection, SourceError> {
+pub(crate) fn open_readonly(path: &Path) -> Result<Connection, SourceError> {
     let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX | OpenFlags::SQLITE_OPEN_URI;
     let attempt = |uri: Option<String>| -> rusqlite::Result<Connection> {
         let conn = match uri {
@@ -201,7 +201,7 @@ fn list_tables(conn: &Connection) -> Result<Vec<String>, SourceError> {
     Ok(names)
 }
 
-fn columns_of(conn: &Connection, table: &str) -> Vec<String> {
+pub(crate) fn columns_of(conn: &Connection, table: &str) -> Vec<String> {
     // Table names come from sqlite_master, but still quote to be safe.
     let sql = format!("PRAGMA table_info(\"{}\")", table.replace('"', "\"\""));
     let Ok(mut stmt) = conn.prepare(&sql) else { return Vec::new() };

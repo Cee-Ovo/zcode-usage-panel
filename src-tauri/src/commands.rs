@@ -134,7 +134,9 @@ pub fn query_sessions_page(
         .filter(|s| {
             needle.is_empty()
                 || s.id.to_lowercase().contains(&needle)
+                || s.title.as_deref().unwrap_or("").to_lowercase().contains(&needle)
                 || s.project.as_deref().unwrap_or("").to_lowercase().contains(&needle)
+                || s.project_path.as_deref().unwrap_or("").to_lowercase().contains(&needle)
                 || s.models.iter().any(|m| m.to_lowercase().contains(&needle))
         })
         .collect();
@@ -989,6 +991,7 @@ mod sessions_page_tests {
             project: project.map(str::to_owned),
             models: vec![model.into()],
             agg,
+            ..Default::default()
         }
     }
 
@@ -1003,6 +1006,26 @@ mod sessions_page_tests {
         let result = query_sessions_page(&all, "historic-model", "recent", 0, 100);
         assert_eq!(result.total, 1);
         assert_eq!(result.items[0].id, "session-0007");
+    }
+
+    #[test]
+    fn searches_match_title_and_project_path() {
+        let mut a = summary("s-title", None, "m", 10, 5);
+        a.title = Some("优化登录性能".into());
+        let mut b = summary("s-path", None, "m", 9, 5);
+        b.project = Some("panel".into());
+        b.project_path = Some("/home/u/projects/zcode-usage-panel".into());
+        let all = vec![a, b, summary("s-none", None, "m", 8, 5)];
+
+        // Real title text matches.
+        assert_eq!(query_sessions_page(&all, "登录性能", "recent", 0, 10).items[0].id, "s-title");
+        // Full workspace path matches even though only the folder name shows.
+        let hit = query_sessions_page(&all, "zcode-usage-panel", "recent", 0, 10);
+        assert_eq!(hit.total, 1);
+        assert_eq!(hit.items[0].id, "s-path");
+        // Folder-name substring also matches via the path.
+        assert_eq!(query_sessions_page(&all, "projects/zcode", "recent", 0, 10).total, 1);
+        assert_eq!(query_sessions_page(&all, "不存在", "recent", 0, 10).total, 0);
     }
 
     #[test]

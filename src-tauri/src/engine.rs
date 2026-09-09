@@ -26,6 +26,7 @@ use crate::zcode::aggregate::{self, Agg, ModelStat, SessionSummary};
 use crate::zcode::discover::{self, DataLayout};
 use crate::zcode::errors::SourceError;
 use crate::zcode::jsonl::{self, JsonlSourceState};
+use crate::zcode::session_meta;
 use crate::zcode::sqlite::{self, SqliteSourceState};
 use crate::zcode::store::UsageStore;
 use crate::zcode::usage::UsageRecord;
@@ -110,6 +111,8 @@ pub struct EngineInner {
     pub last_error: Option<String>,
     /// Consecutive refresh cycles that reported at least one error.
     pub error_streak: u32,
+    /// Last read of the session-metadata sidecar (titles / project dirs).
+    last_meta_refresh: Option<Instant>,
     busy_until_ms: Option<i64>,
     pub boot: Option<BootSnapshot>,
     pub alerts: AlertEngine,
@@ -142,6 +145,7 @@ impl Engine {
                 last_refresh: None,
                 last_error: None,
                 error_streak: 0,
+                last_meta_refresh: None,
                 busy_until_ms: None,
                 boot: None,
                 alerts: AlertEngine::new(),
@@ -404,6 +408,29 @@ impl Engine {
                 }
             }
 
+            // Session metadata sidecar (real titles / workspace dirs from the
+            // `session` table): re-read when usage rows changed, plus at least
+            // once a minute so late-generated titles land even without new
+            // model_usage rows. Best-effort — read failures just retry later.
+            let meta_due = inner
+                .last_meta_refresh
+                .map(|t| t.elapsed() > Duration::from_secs(60))
+                .unwrap_or(true);
+            if changed || meta_due {
+                inner.last_meta_refresh = Some(Instant::now());
+                let sqlite_paths: Vec<PathBuf> = inner.sqlite.keys().cloned().collect();
+                let mut meta = HashMap::new();
+                for path in &sqlite_paths {
+                    if let Some(m) = session_meta::read_session_meta(path) {
+                        meta.extend(m);
+                    }
+                }
+                if inner.store.apply_session_meta(meta) {
+                    changed = true;
+                    self.snapshot_dirty.store(true, Ordering::Relaxed);
+                }
+            }
+
             if !new_records.is_empty() {
                 inner.store.ingest(new_records);
                 self.snapshot_dirty.store(true, Ordering::Relaxed);
@@ -616,5 +643,39 @@ mod tests {
         let inner = engine.inner.lock().unwrap();
         assert_eq!(inner.error_streak, 0);
         assert!(gate_error(inner.error_streak, inner.last_error.clone()).is_none());
+    }
+
+    #[test]
+    fn refresh_enriches_sessions_with_real_titles_and_projects() {
+        // A ZCode-CLI-shaped db: usage rows in model_usage, the human-facing
+        // title + workspace dir in the `session` sidecar table.
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("cli").join("db").join("db.sqlite");
+        std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE model_usage (
+                id TEXT PRIMARY KEY, session_id TEXT NOT NULL, model_id TEXT NOT NULL,
+                status TEXT NOT NULL, started_at INTEGER NOT NULL,
+                input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE session (
+                id TEXT PRIMARY KEY, title TEXT NOT NULL, directory TEXT NOT NULL
+            );
+            INSERT INTO model_usage VALUES ('r1', 'sess-1', 'glm-5.3', 'completed', 1786278274308, 100, 200);
+            INSERT INTO session VALUES ('sess-1', '优化登录性能', '/home/u/projects/panel');",
+        )
+        .unwrap();
+
+        let (engine, _rx) = Engine::new();
+        let settings = settings_with_dir(dir.path().to_str());
+        engine.refresh_once(&settings);
+
+        let inner = engine.inner.lock().unwrap();
+        assert_eq!(inner.store.len(), 1, "usage row ingested");
+        let s = inner.store.session_summary("sess-1").unwrap();
+        assert_eq!(s.title.as_deref(), Some("优化登录性能"));
+        assert_eq!(s.project.as_deref(), Some("panel"));
+        assert_eq!(s.project_path.as_deref(), Some("/home/u/projects/panel"));
     }
 }

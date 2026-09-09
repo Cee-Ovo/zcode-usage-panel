@@ -13,6 +13,7 @@ pub mod discover;
 pub mod errors;
 pub mod jsonl;
 pub mod pricing;
+pub mod session_meta;
 pub mod sqlite;
 pub mod store;
 pub mod usage;

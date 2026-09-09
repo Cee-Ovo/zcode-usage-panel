@@ -41,6 +41,8 @@ export const api = {
   dashboard: (rangeKey: string) => invoke<DashboardDto>("get_dashboard", { rangeKey }),
   usageView: (rangeKey: string, includeTrend = true) =>
     invoke<UsageViewDto>("get_usage_view", { rangeKey, includeTrend }),
+  localUsageView: (provider: string, rangeKey: string, includeTrend = true) =>
+    invoke<UsageViewDto>("get_local_usage_view", { provider, rangeKey, includeTrend }),
   trend: (rangeKey: string) => invoke<TrendDto>("get_trend", { rangeKey }),
   sessions: () => invoke<SessionSummary[]>("get_sessions"),
   sessionsPage: (query = "", sort: SessionSort = "recent", page = 0, pageSize = 50) =>
@@ -65,8 +67,8 @@ export const api = {
   // ---- official-API cost estimation ----
   costSummary: (rangeKey: string) =>
     invoke<CostSummaryDto>("cost_summary", { range: rangeKey }),
-  costDetail: (rangeKey: string, model: string) =>
-    invoke<CostDetailDto>("cost_detail", { range: rangeKey, model }),
+  costDetail: (rangeKey: string, model: string, provider?: string) =>
+    invoke<CostDetailDto>("cost_detail", { range: rangeKey, model, provider: provider ?? null }),
   pricingTable: () => invoke<PricingTableDto>("pricing_table"),
   pricingRefresh: () => invoke<PricingRefreshResultDto>("pricing_refresh"),
   pricingOverride: (model: string, o: OverrideDto | null) =>

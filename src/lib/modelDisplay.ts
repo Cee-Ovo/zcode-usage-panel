@@ -11,12 +11,14 @@
 
 export const CODEX_BADGE = "（Codex）";
 export const DSH_BADGE = "（DSH）";
+export const CLAUDE_CODE_BADGE = "（Claude Code）";
 
-export type ModelSource = "codex" | "dsh" | "zcode" | null;
+export type ModelSource = "codex" | "dsh" | "claude-code" | "zcode" | null;
 
 const BADGES: Partial<Record<Exclude<ModelSource, null>, string>> = {
   codex: CODEX_BADGE,
   dsh: DSH_BADGE,
+  "claude-code": CLAUDE_CODE_BADGE,
 };
 
 /** Append the source badge for provider-sourced models; idempotent. */

@@ -1,9 +1,14 @@
-/** Display-layer model naming: the （Codex） badge must be suffix-only,
- *  idempotent, and never applied to non-Codex (e.g. ZCode) models —
+/** Display-layer model naming: the （来源） badge must be suffix-only,
+ *  idempotent, and never applied to unattributed (e.g. ZCode) models —
  *  raw names must stay untouched for queries/IPC/map keys. */
 
 import { describe, expect, it } from "vitest";
-import { CODEX_BADGE, displayModelName } from "../src/lib/modelDisplay";
+import {
+  CLAUDE_CODE_BADGE,
+  CODEX_BADGE,
+  DSH_BADGE,
+  displayModelName,
+} from "../src/lib/modelDisplay";
 
 describe("displayModelName", () => {
   it("appends the Codex badge for Codex-sourced models", () => {
@@ -21,6 +26,20 @@ describe("displayModelName", () => {
     // no guessing from the name itself — "codex" substring is not a source
     expect(displayModelName("codex-fast", "zcode")).toBe("codex-fast");
     expect(displayModelName("codex-fast", null)).toBe("codex-fast");
+  });
+
+  it("appends the DSH and Claude Code badges for their sources", () => {
+    expect(displayModelName("deepseek-chat", "dsh")).toBe(`deepseek-chat${DSH_BADGE}`);
+    expect(displayModelName("deepseek-reasoner", "dsh")).not.toContain(CODEX_BADGE);
+    expect(displayModelName("claude-sonnet-5", "claude-code")).toBe(
+      `claude-sonnet-5${CLAUDE_CODE_BADGE}`,
+    );
+    // idempotent for the new badge as well
+    expect(displayModelName(`claude-sonnet-5${CLAUDE_CODE_BADGE}`, "claude-code")).toBe(
+      `claude-sonnet-5${CLAUDE_CODE_BADGE}`,
+    );
+    // a claude- model name alone is NOT a source attribution
+    expect(displayModelName("claude-sonnet-5", null)).toBe("claude-sonnet-5");
   });
 
   it("default source is unattributed (no badge)", () => {

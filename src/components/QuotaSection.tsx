@@ -418,7 +418,15 @@ export function ProviderDetailModal({ provider, onClose }: { provider: string; o
             {snap.localUsage.models.length > 0 && (
               <LocalModelUsage
                 models={snap.localUsage.models}
-                source={provider === "codex" ? "codex" : null}
+                source={
+                  provider === "codex"
+                    ? "codex"
+                    : provider === "dsh"
+                      ? "dsh"
+                      : provider === "claude-code"
+                        ? "claude-code"
+                        : null
+                }
               />
             )}
           </>
@@ -534,15 +542,16 @@ function LocalUsageTable({ usage }: { usage: NonNullable<ProviderSnapshot["local
 
 /**
  * Per-model local usage (all-time, sorted desc by the provider). First screen
- * caps at 5 rows with an expand toggle. Codex-sourced names get the （Codex）
- * display badge; raw names stay untouched for any further lookups.
+ * caps at 5 rows with an expand toggle. Provider-sourced names get the
+ * matching （来源）display badge; raw names stay untouched for any further
+ * lookups.
  */
 function LocalModelUsage({
   models,
   source,
 }: {
   models: NonNullable<ProviderSnapshot["localUsage"]>["models"];
-  source: "codex" | null;
+  source: "codex" | "dsh" | "claude-code" | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   const sorted = useMemo(

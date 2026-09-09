@@ -3,7 +3,7 @@ import { Glass, SegmentedControl, Button } from "open-glass-ui";
 import { AnimatePresence, motion } from "motion/react";
 import { AnimatedNumber } from "../components/AnimatedNumber";
 import { LiquidSegmentedControl } from "../components/LiquidSegmentedControl";
-import { LocalUsagePanel } from "../components/LocalUsagePanel";
+import { LocalSourceSection } from "../components/LocalSourceSection";
 import { CostDetailModal } from "../components/CostDetailModal";
 import { MetricCard, InfoDot } from "../components/MetricCard";
 import { QuotaSection } from "../components/QuotaSection";
@@ -38,33 +38,40 @@ const SPEED_HINT =
   "tok/s = Σ(output+reasoning tokens) ÷ Σ生成时长,生成时长 = duration − TTFT;缺 TTFT 或无输出 token 的请求不计入,\n" +
   "因此不与「全程平均」混算。P95 为最近邻位次法。数据源不记录时间字段的记录存在时,整卡显示 unavailable,绝不编造。";
 
-// ---- 三分区(数据源分区)定义 --------------------------------------------------
+// ---- 四分区(数据源分区)定义 --------------------------------------------------
 
-type SectionKey = "zcode" | "codex" | "dsh";
+type SectionKey = "zcode" | "codex" | "dsh" | "claude";
 
-const SECTION_KEYS: SectionKey[] = ["zcode", "codex", "dsh"];
+const SECTION_KEYS: SectionKey[] = ["zcode", "codex", "dsh", "claude"];
 
 const SECTION_LABELS: Record<SectionKey, string> = {
   zcode: "ZCode",
   codex: "Codex",
   dsh: "DSH",
+  claude: "CC",
 };
 
 const SECTION_SUBTITLES: Record<SectionKey, string> = {
   zcode: "本地 usage 记录 · API 等价花费为官方单价估算",
   codex: "Codex 客户端 session 日志统计 · 不计入 ZCode 总 Token",
   dsh: "DeepSeek Harness session 日志统计 · 不计入 ZCode 总 Token",
+  claude: "Claude Code 本地转写统计 · 不计入 ZCode 总 Token",
 };
 
 const CODEX_EXPLAIN =
-  "Codex Token = 本地 Codex 客户端 session 日志中提供的 total_tokens 原值;Cached / Cache Write 作为分项展示,不会重复加到总量中。\n" +
+  "Codex Token = 本地 Codex 客户端 session 日志(含 archived_sessions)中提供的 total_tokens 原值;Cached / Cache Write 作为分项展示,不会重复加到总量中。\n" +
   "它与「ZCode 总 Token」分开统计、互不计入;与服务额度区的 Codex 官方套餐额度(5 小时/周 rate_limits)也是两个独立指标。\n" +
-  "本地 Token 统计 ≠ 官方剩余额度 ≠ 实际 Billing。";
+  "本地 Token 统计 ≠ 官方剩余额度 ≠ 实际 Billing;速度类指标因日志无时间字段而不可用。";
 
 const DSH_EXPLAIN =
   "DSH Token = DeepSeek Harness 本地 session 日志中 assistant 消息的 usage 统计:inputTokens 为未缓存输入,cacheRead / cacheWrite 单列;reasoning 已包含在 Output 中,总量不重复累计。\n" +
   "它与「ZCode 总 Token」「Codex 本地 Token」分开统计、互不计入。\n" +
-  "本地 Token 统计 ≠ 实际 Billing;DSH 分区不展示金额与速度指标(日志中无对应可核实字段)。";
+  "本地 Token 统计 ≠ 实际 Billing;速度类指标因日志无时间字段而不可用。";
+
+const CLAUDE_EXPLAIN =
+  "Claude Code Token = 本地 ~/.claude/projects 转写中 assistant 消息的 usage 统计:Claude 官方口径 input_tokens 不含 cache(读/写单列),总量 = Input + Output + Cache 读 + Cache 写。\n" +
+  "同一 message.id 的流式重复行按最后一条快照计数,不会重复累计。\n" +
+  "它与「ZCode 总 Token」分开统计、互不计入;Claude Code 无本地可查的官方套餐额度,本分区不展示任何官方额度;速度类指标因日志无时间字段而不可用。";
 
 function readStoredSection(): SectionKey {
   try {
@@ -133,27 +140,28 @@ export const DashboardPage = memo(function DashboardPage({ onRangeChange }: { on
       <div className="dashboard-section">
         {section === "zcode" ? (
           <ZCodeSection compact={compact} />
-        ) : section === "codex" ? (
-          <LocalUsagePanel
-            provider="codex"
-            title="Codex 本地 Token 用量"
-            subtitle="session 日志统计 · 不计入 ZCode 总 Token"
-            explain={CODEX_EXPLAIN}
-            modelSource="codex"
-            notEnabledHint="在「设置 → Codex」中开启后,这里会显示本地 session 日志统计。"
-            footnote="来自本地 Codex session 日志 · 与官方套餐额度(5 小时/周)分开统计 · 不等于实际 Billing · 不计入 ZCode 总 Token"
-            detailTitle="查看 Codex 详情(官方额度 / 模型明细)"
-          />
         ) : (
-          <LocalUsagePanel
-            provider="dsh"
-            title="DSH 本地 Token 用量"
-            subtitle="DeepSeek Harness session 日志 · 不计入 ZCode 总 Token"
-            explain={DSH_EXPLAIN}
-            modelSource="dsh"
-            notEnabledHint="在「设置 → DSH」中开启后,这里会显示 DeepSeek Harness 本地 session 日志统计。"
-            footnote="来自本地 DSH session 日志 · 不等于实际 Billing · 不计入 ZCode 总 Token · 未找到日志时可在「设置 → DSH」指定路径"
-            detailTitle="查看 DSH 详情(模型明细)"
+          <LocalSourceSection
+            provider={section === "codex" ? "codex" : section === "dsh" ? "dsh" : "claude-code"}
+            totalLabel={
+              section === "codex"
+                ? "Codex 总 Token"
+                : section === "dsh"
+                  ? "DSH 总 Token"
+                  : "Claude Code 总 Token"
+            }
+            explain={
+              section === "codex" ? CODEX_EXPLAIN : section === "dsh" ? DSH_EXPLAIN : CLAUDE_EXPLAIN
+            }
+            modelSource={section === "codex" ? "codex" : section === "dsh" ? "dsh" : "claude-code"}
+            compact={compact}
+            emptyHint={
+              section === "codex"
+                ? "在「设置 → Codex」中开启后,这里会显示本地 session 日志统计。"
+                : section === "dsh"
+                  ? "在「设置 → DSH」中开启后,这里会显示 DeepSeek Harness 本地 session 日志统计。"
+                  : "在「设置 → Claude Code」中开启后,这里会显示本地转写统计。"
+            }
           />
         )}
       </div>

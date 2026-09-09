@@ -251,6 +251,9 @@ export interface ProviderSettings {
   dshEnabled: boolean;
   dshHome: string | null;
   dshRefreshMs: number;
+  claudeCodeEnabled: boolean;
+  claudeCodeHome: string | null;
+  claudeCodeRefreshMs: number;
   antigravityEnabled: boolean;
   antigravityRefreshMs: number;
   volcengineEnabled: boolean;
@@ -517,6 +520,7 @@ export const PROVIDER_LABELS: Record<string, string> = {
   zcode: "ZCode",
   codex: "Codex",
   dsh: "DSH",
+  "claude-code": "Claude Code",
   antigravity: "Antigravity",
   volcengine: "火山引擎",
 };

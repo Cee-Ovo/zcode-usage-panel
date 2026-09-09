@@ -10,12 +10,15 @@ import { formatCny, formatTokens, formatUnitPerM } from "../lib/format";
  * Cost breakdown for one model over the current range (role="dialog").
  * fx / priceUpdatedAt are passed in from the caller's cost_summary snapshot
  * so the footer shows the same rates the estimate was computed with.
+ * `provider` (optional) scopes the records to a local source (codex / dsh /
+ * claude-code); without it the ZCode engine's records are used.
  */
 export function CostDetailModal({
   model,
   rangeKey,
   fx,
   priceUpdatedAt,
+  provider,
   onClose,
   glass = false,
 }: {
@@ -23,6 +26,7 @@ export function CostDetailModal({
   rangeKey: string;
   fx: FxInfo | null | undefined;
   priceUpdatedAt: string | null | undefined;
+  provider?: string;
   onClose: () => void;
   glass?: boolean;
 }) {
@@ -35,7 +39,7 @@ export function CostDetailModal({
     setDetail(null);
     setError(false);
     api
-      .costDetail(rangeKey, model)
+      .costDetail(rangeKey, model, provider)
       .then((d) => {
         if (alive) setDetail(d);
       })
@@ -43,7 +47,7 @@ export function CostDetailModal({
     return () => {
       alive = false;
     };
-  }, [model, rangeKey, retry]);
+  }, [model, rangeKey, provider, retry]);
 
   const rangeLabel = RANGE_LABELS[rangeKey as keyof typeof RANGE_LABELS] ?? rangeKey;
 

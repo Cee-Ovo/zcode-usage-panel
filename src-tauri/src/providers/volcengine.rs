@@ -113,11 +113,14 @@ pub fn sign(
         hex(&Sha256::digest(canonical_request.as_bytes()))
     );
 
-    let k_date = hmac_hex(sk.as_bytes(), date.as_bytes());
-    let k_region = hmac_hex(k_date.as_bytes(), region.as_bytes());
-    let k_service = hmac_hex(k_region.as_bytes(), SERVICE.as_bytes());
-    let k_signing = hmac_hex(k_service.as_bytes(), b"request");
-    let signature = hex(&hmac_bytes(k_signing.as_bytes(), string_to_sign.as_bytes()));
+    // Key derivation must chain RAW hmac digests (AWS-SigV4 style). Feeding
+    // the hex text back in as the next key produces a valid-looking but
+    // different signature → "SignatureDoesNotMatch".
+    let k_date = hmac_bytes(sk.as_bytes(), date.as_bytes());
+    let k_region = hmac_bytes(&k_date, region.as_bytes());
+    let k_service = hmac_bytes(&k_region, SERVICE.as_bytes());
+    let k_signing = hmac_bytes(&k_service, b"request");
+    let signature = hex(&hmac_bytes(&k_signing, string_to_sign.as_bytes()));
 
     SignedRequest {
         url: format!("https://{HOST}/?{canonical_query}"),
@@ -134,10 +137,6 @@ fn hmac_bytes(key: &[u8], data: &[u8]) -> [u8; 32] {
     let mut mac = HmacSha256::new_from_slice(key).expect("hmac accepts any key length");
     mac.update(data);
     mac.finalize().into_bytes().into()
-}
-
-fn hmac_hex(key: &[u8], data: &[u8]) -> String {
-    hex(&hmac_bytes(key, data))
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -282,33 +281,55 @@ impl HttpTransport for UreqTransport {
         let agent = ureq::AgentBuilder::new()
             .timeout(std::time::Duration::from_secs(self.timeout_secs.max(5)))
             .build();
-        let resp = agent
+        let resp = match agent
             .post(&req.url)
             .set("Content-Type", "application/json")
             .set("X-Date", &req.x_date)
             .set("X-Content-Sha256", &req.x_content_sha256)
             .set("Authorization", &req.authorization)
             .send_string(&req.body)
-            .map_err(|e| VolcError::Network(e.to_string()))?;
+        {
+            Ok(resp) => resp,
+            // ureq turns 4xx/5xx into `Error::Status`; the body still carries
+            // the API's error envelope and must not be reported as a network
+            // failure.
+            Err(ureq::Error::Status(code, resp)) => {
+                let body = resp.into_string().unwrap_or_default();
+                return Err(api_error(code, &body));
+            }
+            Err(e) => return Err(VolcError::Network(e.to_string())),
+        };
         let status = resp.status();
         let body = resp
             .into_string()
             .map_err(|e| VolcError::Network(e.to_string()))?;
         if status >= 400 {
-            // Surface the API's own error code when present.
-            let why = serde_json::from_str::<serde_json::Value>(&body)
-                .ok()
-                .and_then(|v| {
-                    v.pointer("/ResponseMetadata/Error")
-                        .or_else(|| v.get("Error"))
-                        .and_then(|e| e.get("Message").or(Some(e)))
-                        .and_then(|m| m.as_str().map(|s| s.to_string()))
-                })
-                .unwrap_or_else(|| "请求被拒绝".into());
-            return Err(VolcError::Http(status, why));
+            return Err(api_error(status, &body));
         }
         Ok(body)
     }
+}
+
+/// Extract the API's own error code/message from an error envelope body.
+fn api_error(status: u16, body: &str) -> VolcError {
+    let why = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| {
+            v.pointer("/ResponseMetadata/Error")
+                .or_else(|| v.get("Error"))
+                .and_then(|e| {
+                    let code = e.get("Code").and_then(|c| c.as_str());
+                    let msg = e.get("Message").and_then(|m| m.as_str());
+                    match (code, msg) {
+                        (Some(c), Some(m)) => Some(format!("{c}: {m}")),
+                        (Some(c), None) => Some(c.to_string()),
+                        (None, Some(m)) => Some(m.to_string()),
+                        (None, None) => None,
+                    }
+                })
+        })
+        .unwrap_or_else(|| "请求被拒绝".into());
+    VolcError::Http(status, why)
 }
 
 pub struct VolcengineProvider<'a> {
@@ -404,14 +425,14 @@ mod tests {
         assert_eq!(req.x_date, "20260830T120000Z");
         assert!(req.authorization.starts_with("HMAC-SHA256 Credential=AKTEST/20260830/cn-beijing/billing/request"));
         assert!(req.authorization.contains("SignedHeaders=content-type;host;x-content-sha256;x-date"));
-        // Deterministic signature — cross-checked against an independent
-        // Python implementation of the documented signing steps.
+        // Deterministic signature — raw-byte key derivation per the official
+        // signing steps.
         let sig = req.authorization.rsplit("Signature=").next().unwrap().to_string();
         assert_eq!(sig.len(), 64);
         assert_eq!(
             sig,
-            "020d0464bcf204aebcd01d8af762acd6ae50a64acdd420282e932d9b23079455",
-            "signature must match the independent reference implementation"
+            "41e988fe90cdce9db730bdd234af5f48c84c0ab7bd68ab796350900d38c149cf",
+            "signature must match the official raw-digest derivation"
         );
         assert_eq!(req.x_content_sha256, "73da547950309cc3549fa2f13edefd50fe814f47259bd2cf22c8a590fa17bc50");
         // Same inputs → same output; different body → different signature.
@@ -419,6 +440,26 @@ mod tests {
         assert_eq!(req.authorization, req2.authorization);
         let req3 = sign("AKTEST", "SKTEST", &utc(), "cn-beijing", "POST", "/", &query, "other");
         assert_ne!(req.authorization, req3.authorization);
+    }
+
+    #[test]
+    fn key_derivation_matches_official_demo_vector() {
+        // Known-answer from Volcengine's own signing demo (docs 6369/67270):
+        // demo AK/SK, X-Date 20240619T071306Z, iam service, and the
+        // documented canonical-request hash. The derivation must chain RAW
+        // hmac digests — hex-text keys fail against the live API with
+        // SignatureDoesNotMatch.
+        let sk = "WkRZeE1EQmxPVGhsWWpWak5HVmtNbUUxTXpZeU9UVXlOMlE1TmpZeVlqTQ==";
+        let k_date = hmac_bytes(sk.as_bytes(), b"20240619");
+        let k_region = hmac_bytes(&k_date, b"cn-beijing");
+        let k_service = hmac_bytes(&k_region, b"iam");
+        let k_signing = hmac_bytes(&k_service, b"request");
+        let sts = "HMAC-SHA256\n20240619T071306Z\n20240619/cn-beijing/iam/request\n\
+                   5ed5bca3905e1fcbf789abb56a17c2d819674a3bcfa468ae476bd1ea80d135cb";
+        assert_eq!(
+            hex(&hmac_bytes(&k_signing, sts.as_bytes())),
+            "e31c4558bcfe08a286001f59cedbf0791ffd0b2362f10e55ee2627467bcdde93"
+        );
     }
 
     #[test]

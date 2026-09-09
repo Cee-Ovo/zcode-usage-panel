@@ -198,6 +198,12 @@ body {
   min-width: 0;
 }
 
+/* The refresh status line is permanent (loading and last-success share one
+   row) so toggling the loading state never shifts the rows below it. */
+.zup-nav .footnote .sidebar-refresh-line {
+  min-height: 1.5em;
+}
+
 .zup-content {
   flex: 1;
   overflow-y: auto;

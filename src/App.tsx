@@ -416,10 +416,13 @@ export function App() {
                     </button>
                   </div>
                 )}
-                {refresh.loading && <div role="status">数据刷新中…</div>}
-                {refresh.lastSuccessMs !== null && (
-                  <div>最近成功 {formatClock(refresh.lastSuccessMs)}</div>
-                )}
+                <div role="status" className="sidebar-refresh-line">
+                  {refresh.loading
+                    ? "数据刷新中…"
+                    : refresh.lastSuccessMs !== null
+                      ? `最近成功 ${formatClock(refresh.lastSuccessMs)}`
+                      : "\u00A0"}
+                </div>
                 <HistoryHealthStatus />
                 {floatingSidebar && <details className="sidebar-diagnostics">
                   <summary>运行详情</summary>

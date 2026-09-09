@@ -979,6 +979,9 @@ mod sessions_page_tests {
         let mut agg = Agg::default();
         agg.requests = 1;
         agg.input = tokens;
+        // Real Aggs accumulate this via add(); the fixture mirrors one record
+        // whose display total equals its input.
+        agg.total_sum = tokens;
         agg.last_ts_ms = Some(last);
         agg.first_ts_ms = Some(last);
         SessionSummary {

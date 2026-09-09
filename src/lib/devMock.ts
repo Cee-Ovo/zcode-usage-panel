@@ -29,6 +29,8 @@ const mkAgg = (scale: number) => ({
   reasoning: { sum: Math.round(140_000 * scale), present: Math.round(420 * scale) },
   cacheRead: { sum: Math.round(3_100_000 * scale), present: Math.round(400 * scale) },
   cacheWrite: { sum: Math.round(210_000 * scale), present: Math.round(300 * scale) },
+  // Inclusive mock schema: input already contains the cache; total excludes it.
+  totalSum: Math.round(9_500_000 * scale),
   hitCached: Math.round(2_600_000 * scale),
   hitInputTotal: Math.round(8_400_000 * scale),
   firstTsMs: now - 12 * hour,

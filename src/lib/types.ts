@@ -12,6 +12,9 @@ export interface Agg {
   reasoning: FieldStat;
   cacheRead: FieldStat;
   cacheWrite: FieldStat;
+  /** Σ per-record display totals (backend caliber-aware); the value behind
+   * the "总 Token" cards. Absent only in legacy/dev-mock payloads. */
+  totalSum?: number;
   hitCached: number;
   hitInputTotal: number;
   firstTsMs: number | null;
@@ -537,6 +540,9 @@ export const RANGE_LABELS: Record<RangeKey, string> = {
 // ---- derived helpers -------------------------------------------------------
 
 export function totalTokens(agg: Agg): number {
+  // Backend-caliber total (inclusive schemas don't re-add cache; reasoning
+  // may be nested in output). Fallback recombinces for legacy/mock payloads.
+  if (typeof agg.totalSum === "number") return agg.totalSum;
   return agg.input + agg.output + agg.reasoning.sum + agg.cacheRead.sum + agg.cacheWrite.sum;
 }
 

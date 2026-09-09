@@ -1,8 +1,13 @@
 //! Aggregation: totals, per-model stats, time buckets, session summaries.
 //!
 //! Statistical conventions (also shown as UI tooltips):
-//! - **Total tokens** = input + output + reasoning + cache_read + cache_write,
-//!   summing only the fields the source actually provides.
+//! - **Total tokens** = per-record display totals
+//!   (`UsageRecord::display_total_tokens`): a source-provided total wins;
+//!   otherwise input + output + reasoning (when the schema reports it
+//!   outside output) + cache_read + cache_write (when the schema's input
+//!   excludes cache). Inclusive schemas (input already contains the cache
+//!   tokens, e.g. ZCode `model_usage`, OpenAI-style `prompt_tokens`) must
+//!   not add the cache again — otherwise heavily cached traffic doubles.
 //! - **Cache Hit Rate** = cached input / total input, where a record's total
 //!   input is auto-classified per source schema:
 //!     * inclusive schemas (input_tokens already contains cached tokens,
@@ -51,6 +56,11 @@ pub struct Agg {
     pub reasoning: FieldStat,
     pub cache_read: FieldStat,
     pub cache_write: FieldStat,
+    /// Σ per-record display totals (`UsageRecord::display_total_tokens`).
+    /// What `total_tokens()` reports — never a blind recombination of the
+    /// field sums, which double counts on inclusive schemas.
+    #[serde(default)]
+    pub total_sum: u64,
     /// Σ cached input tokens (numerator of the hit rate).
     pub hit_cached: u64,
     /// Σ total input tokens under the auto-classified schema (denominator).
@@ -82,15 +92,13 @@ impl Agg {
 
         self.first_ts_ms = Some(self.first_ts_ms.map_or(r.ts_ms, |t| t.min(r.ts_ms)));
         self.last_ts_ms = Some(self.last_ts_ms.map_or(r.ts_ms, |t| t.max(r.ts_ms)));
+        self.total_sum = self.total_sum.saturating_add(r.display_total_tokens());
     }
 
-    /// Total tokens as displayed. Only counts fields the source provides.
+    /// Total tokens as displayed. Sum of per-record display totals so each
+    /// record is counted under its own source schema.
     pub fn total_tokens(&self) -> u64 {
-        self.input
-            .saturating_add(self.output)
-            .saturating_add(self.reasoning.sum)
-            .saturating_add(self.cache_read.sum)
-            .saturating_add(self.cache_write.sum)
+        self.total_sum
     }
 
     pub fn cache_hit_rate(&self) -> Option<f64> {
@@ -235,7 +243,8 @@ pub fn bucketize(records: &[UsageRecord], from_ms: i64, to_ms: i64, buckets: usi
 /// - Only requests the source marks completed (or that carry no status at
 ///   all) contribute; `error` / `cancelled` / `running` rows are excluded.
 /// - TTFT values are source-provided originals, never derived here.
-/// - tok/s counts output + reasoning tokens over the *generation* window
+/// - tok/s counts generated tokens (`output + reasoning`, unless the schema
+///   already nests reasoning inside output) over the *generation* window
 ///   (duration − TTFT), so requests without a usable TTFT are excluded from
 ///   the speed aggregate instead of being averaged under a different
 ///   convention.
@@ -257,7 +266,7 @@ pub struct SpeedStats {
     /// Completed (or status-unknown) requests in range — the denominator for
     /// coverage notes.
     pub completed_requests: u64,
-    /// Σ output + reasoning tokens behind `speed_tps`.
+    /// Σ generated tokens (output + reasoning unless nested in output).
     pub generated_tokens: u64,
     /// Σ (duration − TTFT) milliseconds behind `speed_tps`.
     pub generation_ms: u64,
@@ -298,7 +307,7 @@ where
             ttfts.push(ttft);
         }
 
-        let generated = r.output_tokens.saturating_add(r.reasoning_tokens.unwrap_or(0));
+        let generated = r.generated_tokens();
         if let (Some(ttft), Some(duration)) = (r.ttft_ms, r.duration_ms) {
             if generated > 0 && duration > ttft {
                 let gen_ms = duration - ttft;
@@ -376,6 +385,8 @@ mod tests {
             duration_ms: None,
             ttft_ms: None,
             status: None,
+            total_override: None,
+            reasoning_in_output: false,
             source_file: "t".into(),
         }
     }
@@ -394,6 +405,8 @@ mod tests {
             duration_ms: duration,
             ttft_ms: ttft,
             status: status.map(str::to_string),
+            total_override: None,
+            reasoning_in_output: false,
             source_file: "t".into(),
         }
     }
@@ -433,6 +446,48 @@ mod tests {
         assert_eq!(agg.cache_read.sum, 100);
         assert_eq!(agg.cache_read.present, 1); // 1 of 2 records
         assert_eq!(agg.total_tokens(), 10 + 20 + 100 + 1 + 2);
+    }
+
+    #[test]
+    fn total_tokens_inclusive_schema_does_not_add_cache_twice() {
+        // ZCode / OpenAI style: input_tokens already contains the cache.
+        let mut agg = Agg::default();
+        agg.add(&rec(1, "m", 54518, 286, Some(54016), None));
+        assert_eq!(agg.total_tokens(), 54518 + 286);
+
+        // Inclusive with cache_write too: input = cache_read + cache_write + rest.
+        let mut agg = Agg::default();
+        agg.add(&rec(1, "m", 19975, 18, Some(0), Some(19973)));
+        assert_eq!(agg.total_tokens(), 19975 + 18);
+    }
+
+    #[test]
+    fn total_tokens_source_override_wins() {
+        // ZCode computed_total_tokens: input+output, reasoning nested in output.
+        let mut r = rec(1, "m", 54518, 286, Some(54016), None);
+        r.total_override = Some(54804);
+        r.reasoning_in_output = true;
+        let mut agg = Agg::default();
+        agg.add(&r);
+        assert_eq!(agg.total_tokens(), 54804);
+    }
+
+    #[test]
+    fn speed_generated_tokens_exclude_nested_reasoning() {
+        // reasoning_tokens ⊆ output_tokens on the ZCode SQLite schema:
+        // adding it again inflated tok/s (deepseek rows: 132 real → 213 shown).
+        let mut r = speed_rec(1, 73, Some(36), Some(1_000), Some(2_000), None);
+        r.reasoning_in_output = true;
+        let s = compute_speed_stats(&[r]);
+        assert_eq!(s.generated_tokens, 73);
+        assert!((s.speed_tps.unwrap() - 73.0).abs() < 1e-9);
+
+        // Same record under a Claude-style schema (reasoning separate) keeps
+        // the old caliber.
+        let r = speed_rec(1, 73, Some(36), Some(1_000), Some(2_000), None);
+        let s = compute_speed_stats(&[r]);
+        assert_eq!(s.generated_tokens, 109);
+        assert!((s.speed_tps.unwrap() - 109.0).abs() < 1e-9);
     }
 
     #[test]

@@ -39,8 +39,66 @@ pub struct UsageRecord {
     /// completed for stats that must exclude failures.
     #[serde(default)]
     pub status: Option<String>,
+    /// Source-provided grand total for the request (ZCode
+    /// `computed_total_tokens`), when the schema offers one. Preferred over
+    /// recombining fields so totals match the harness's own caliber exactly.
+    #[serde(default)]
+    pub total_override: Option<u64>,
+    /// `true` when the schema counts `reasoning_tokens` inside
+    /// `output_tokens` (ZCode `model_usage`: computed total == input +
+    /// output even for reasoning rows). Totals and speed must not add
+    /// reasoning again in that case.
+    #[serde(default)]
+    pub reasoning_in_output: bool,
     /// Originating file path (for the data-source inspector).
     pub source_file: String,
+}
+
+impl UsageRecord {
+    /// Display total for this request under the auto-classified schema.
+    ///
+    /// A source-provided total wins outright. Otherwise cache tokens are
+    /// added only for exclusive schemas (Claude-style `input_tokens` excludes
+    /// cache); inclusive schemas (input already contains cache_read — and
+    /// cache_write, as in ZCode `model_usage`) must not add them again, or
+    /// heavily cached traffic doubles. Reasoning is added only when the
+    /// schema does not already nest it inside `output_tokens`.
+    pub fn display_total_tokens(&self) -> u64 {
+        if let Some(total) = self.total_override {
+            return total;
+        }
+        let cache_extra = match self.cache_read_tokens {
+            Some(cr) => {
+                let cw = self.cache_write_tokens.unwrap_or(0);
+                if self.input_tokens >= cr + cw && self.input_tokens > 0 {
+                    0
+                } else {
+                    cr + cw
+                }
+            }
+            None => self.cache_write_tokens.unwrap_or(0),
+        };
+        let reasoning = if self.reasoning_in_output {
+            0
+        } else {
+            self.reasoning_tokens.unwrap_or(0)
+        };
+        self.input_tokens
+            .saturating_add(self.output_tokens)
+            .saturating_add(cache_extra)
+            .saturating_add(reasoning)
+    }
+
+    /// Output-side tokens for speed statistics: `output + reasoning` unless
+    /// the schema already counts reasoning inside output.
+    pub fn generated_tokens(&self) -> u64 {
+        if self.reasoning_in_output {
+            self.output_tokens
+        } else {
+            self.output_tokens
+                .saturating_add(self.reasoning_tokens.unwrap_or(0))
+        }
+    }
 }
 
 /// Context hints derived from the file a line was read from.
@@ -321,6 +379,10 @@ pub fn extract_record(line: &Value, ctx: &LineContext) -> Result<Option<UsageRec
         duration_ms: pick_u64(usage, DURATION_ALIASES),
         ttft_ms: pick_u64(usage, TTFT_ALIASES),
         status,
+        total_override: None,
+        // JSONL schemas (Claude-style) report reasoning as a separate
+        // usage field outside output_tokens; ZCode SQLite sets this itself.
+        reasoning_in_output: false,
         source_file: ctx.source_file.clone(),
     }))
 }

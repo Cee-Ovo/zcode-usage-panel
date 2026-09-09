@@ -184,6 +184,8 @@ mod tests {
             duration_ms: None,
             ttft_ms: None,
             status: None,
+            total_override: None,
+            reasoning_in_output: false,
             source_file: "t".into(),
         }
     }

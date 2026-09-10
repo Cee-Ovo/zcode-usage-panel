@@ -30,14 +30,14 @@ export function formatLatency(ms: number | null): string {
   return `${Math.round(ms)} 毫秒`;
 }
 
-/** Tokens per second → "87 tok/s"; null → "—". */
+/** Tokens per second → "87 tps"; null → "—". */
 export function formatTps(v: number | null): string {
   if (v === null || !isFinite(v) || v <= 0) return "—";
-  if (v >= 10) return `${Math.round(v)} tok/s`;
-  return `${v.toFixed(1)} tok/s`;
+  if (v >= 10) return `${Math.round(v)} tps`;
+  return `${v.toFixed(1)} tps`;
 }
 
-/** 模型页响应速度单元格:"2.8 秒 · 87 tok/s"(与仪表盘速度卡同格式);
+/** 模型页响应速度单元格:"2.8 秒 · 87 tps"(与仪表盘速度卡同格式);
  *  任一子项缺样本就省略,全缺为 "—"。 */
 export function formatModelSpeed(speed: SpeedStats | null | undefined): string {
   if (!speed) return "—";

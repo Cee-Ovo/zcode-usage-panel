@@ -387,7 +387,7 @@ export function LocalSourceSection({
 }
 
 /** 响应速度卡:TTFT 如实不可用(本地日志不记录首 token 时刻);Codex 的
- * tok/s 由事件时间戳近似(窗口含首字等待),speedApproximate 时明确标注。 */
+ * tps 由事件时间戳近似(窗口含首字等待),speedApproximate 时明确标注。 */
 function LocalSpeedCard({ speed }: { speed: SpeedStats | undefined }) {
   const hasSamples = !!speed && speed.ttftSamples > 0;
   const hasSpeed = !!speed && (speed.speedSamples > 0 || speed.speedTps !== null);
@@ -404,7 +404,7 @@ function LocalSpeedCard({ speed }: { speed: SpeedStats | undefined }) {
             {hasSamples ? formatLatency(speed!.ttftAvgMs) : "—"}
             <span className="muted" style={{ fontWeight: 400 }}> · </span>
             {formatTps(speed!.speedTps)}
-            {approx && <span className="muted" style={{ fontWeight: 400 }}>（近似）</span>}
+            {approx && <span className="muted" style={{ fontWeight: 400, fontSize: "0.62em" }}>（近似）</span>}
           </span>
         ) : (
           "unavailable"
@@ -413,14 +413,14 @@ function LocalSpeedCard({ speed }: { speed: SpeedStats | undefined }) {
       unavailable={!available}
       sub={
         approx
-          ? `tok/s 按事件时间戳近似(含首字等待) · 样本 ${speed!.speedSamples}/${speed!.completedRequests} 条请求`
+          ? `tps 按事件时间戳近似(含首字等待) · 样本 ${speed!.speedSamples}/${speed!.completedRequests} 条请求`
           : available
             ? `首 token P95 ${formatLatency(speed!.ttftP95Ms)} · 样本 ${speed!.ttftSamples}/${speed!.completedRequests} 条请求`
             : undefined
       }
       hint={
         approx
-          ? "该数据源的日志不记录首 token 时刻,TTFT 如实显示不可用。\ntok/s 按请求起止事件的时间戳近似推导(窗口含首字等待,数值略偏低),已标注「近似」。"
+          ? "该数据源的日志不记录首 token 时刻,TTFT 如实显示不可用。\ntps 按请求起止事件的时间戳近似推导(窗口含首字等待,数值略偏低),已标注「近似」。"
           : SPEED_UNAVAILABLE_HINT
       }
     />

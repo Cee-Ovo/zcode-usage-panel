@@ -125,13 +125,13 @@ describe("formatLatency", () => {
 });
 
 describe("formatTps", () => {
-  it("rounds to integers from 10 tok/s up", () => {
-    expect(formatTps(87)).toBe("87 tok/s");
-    expect(formatTps(126.7)).toBe("127 tok/s");
-    expect(formatTps(74.62)).toBe("75 tok/s");
+  it("rounds to integers from 10 tps up", () => {
+    expect(formatTps(87)).toBe("87 tps");
+    expect(formatTps(126.7)).toBe("127 tps");
+    expect(formatTps(74.62)).toBe("75 tps");
   });
   it("keeps one decimal for single-digit speeds", () => {
-    expect(formatTps(8.44)).toBe("8.4 tok/s");
+    expect(formatTps(8.44)).toBe("8.4 tps");
   });
   it("degrades null and non-positive values", () => {
     expect(formatTps(null)).toBe("—");

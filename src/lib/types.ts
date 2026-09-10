@@ -30,7 +30,7 @@ export interface SpeedStats {
   speedTps: number | null;
   speedP50Tps: number | null;
   speedSamples: number;
-  /** true = tok/s 的窗口为整请求时长(由事件时间戳推导,含首字等待,未记录 TTFT),UI 标注"近似"。 */
+  /** true = tps 的窗口为整请求时长(由事件时间戳推导,含首字等待,未记录 TTFT),UI 标注"近似"。 */
   speedApproximate?: boolean;
   completedRequests: number;
   generatedTokens: number;

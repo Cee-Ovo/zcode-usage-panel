@@ -14,7 +14,7 @@ ZCode Usage Panel 是一个常驻 Windows 桌面的用量驾驶舱：把 ZCode�
 
 | 数据源 | 说明 |
 |---|---|
-| **ZCode** | 总 Token、API 等价花费、Input / Output / Reasoning / Cache、请求次数、**响应速度（首字延迟 TTFT + tok/s，P95 与样本覆盖如实标注）**、Cache 命中率、活跃模型 |
+| **ZCode** | 总 Token、API 等价花费、Input / Output / Reasoning / Cache、请求次数、**响应速度（首字延迟 TTFT + tps，P95 与样本覆盖如实标注）**、Cache 命中率、活跃模型 |
 | **Codex / DSH / Claude Code** | 各自客户端本地 session 日志的完整统计，**信息密度与 ZCode 分区对齐**——总量、缓存、请求、按模型排行、时间趋势、按官方单价估算的费用，一个不少 |
 
 今天 / 60 分钟 / 24 小时 / 7 天 / 30 天 / 全局时间范围一键切换；字段堆叠趋势图 + 按模型折线，模型可单独显隐。

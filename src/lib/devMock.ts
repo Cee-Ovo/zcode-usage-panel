@@ -305,6 +305,18 @@ function mockLocalUsageView(provider: string, rangeKey: string, includeTrend: bo
     speedTps: null, speedP50Tps: null, speedSamples: 0,
     completedRequests: breakdown.requests, generatedTokens: 0, generationMs: 0,
   };
+  // Codex rollouts carry per-line timestamps → approximate tok/s (whole-
+  // request window, includes first-token wait); TTFT stays honestly null.
+  const codexApproxSpeed = provider === "codex"
+    ? {
+        ...nullSpeed,
+        speedTps: 21.6, speedP50Tps: 19.4,
+        speedSamples: Math.max(1, Math.round(breakdown.requests * 0.82)),
+        speedApproximate: true,
+        generatedTokens: Math.round(breakdown.outputTokens * 0.9),
+        generationMs: Math.round((breakdown.outputTokens * 0.9) / 21.6) * 1000,
+      }
+    : nullSpeed;
   const mkRows = (b: TokenBreakdown): ModelRow[] =>
     fixture.models.map(([name, share]) => ({
       name,
@@ -313,7 +325,7 @@ function mockLocalUsageView(provider: string, rangeKey: string, includeTrend: bo
         requests: Math.max(1, Math.round(b.requests * share)),
       },
       share,
-      speed: nullSpeed,
+      speed: codexApproxSpeed,
     }));
   const latestAgg = mkLocalAgg(scaleBreakdown(fixture.base, 0.18));
   const dash: DashboardDto = {
@@ -336,7 +348,7 @@ function mockLocalUsageView(provider: string, rangeKey: string, includeTrend: bo
         { tsMs: now - 0.6 * hour, model: fixture.models[1][0] },
       ],
     },
-    speed: nullSpeed,
+    speed: codexApproxSpeed,
     restored: false,
     dataError: null,
   };

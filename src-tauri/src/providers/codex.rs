@@ -40,7 +40,10 @@ use super::local_usage::{
 };
 use super::{ProviderSnapshot, ProviderStatus, QuotaWindow};
 
-const CODEX_CACHE_SCHEMA_VERSION: u32 = 3;
+// v4: per-record `duration_ms` derived from event timestamps (input item →
+// last output item) — older caches hold records without it and are only
+// appended to by byte watermark, so they must be rebuilt, not reused.
+const CODEX_CACHE_SCHEMA_VERSION: u32 = 4;
 
 // ---------------------------------------------------------------------------
 // Wire types (subset of Codex's rollout schema)
@@ -421,6 +424,19 @@ fn apply_line(
             if session.title.is_none() {
                 session.title = first_user_text(&v["payload"]);
             }
+            // Request boundaries for the approximate duration. Usage events
+            // are flushed after the turn's tool calls, so they are useless
+            // as an end marker; the *output* items are written as the model
+            // finishes streaming.
+            if ts_ms > 0 {
+                if is_request_input(&v["payload"]) {
+                    if session.pending_input_ms.is_none() {
+                        session.pending_input_ms = Some(ts_ms);
+                    }
+                } else {
+                    session.pending_output_ms = Some(ts_ms);
+                }
+            }
         }
         Some("event_msg") => {
             let p = &v["payload"];
@@ -446,6 +462,20 @@ fn apply_line(
                             &delta,
                         );
                         *session.model_requests.entry(model.clone()).or_default() += 1;
+                        // Approximate request window: from the input item that
+                        // started the request to the last streamed output
+                        // item. Windows outside [100 ms, 10 min] are not
+                        // measurements (timestamp artifacts / stale anchors).
+                        let end = session.pending_output_ms.unwrap_or(ts_ms);
+                        let duration_ms = match session.pending_input_ms {
+                            Some(start) if end > start => Some((end - start) as u64),
+                            _ => None,
+                        }
+                        .filter(|d| {
+                            (MIN_DERIVED_REQUEST_MS..=MAX_DERIVED_REQUEST_MS).contains(d)
+                        });
+                        session.pending_input_ms = None;
+                        session.pending_output_ms = None;
                         session.records.push(delta_record(
                             &delta,
                             CODEX_DELTA,
@@ -454,6 +484,7 @@ fn apply_line(
                             &session.session_id,
                             session.project_path.as_deref(),
                             source_file,
+                            duration_ms,
                         ));
                         session.totals = parsed; // cumulative — last wins
                         session.responses += 1;
@@ -514,6 +545,27 @@ fn normalize_title(s: &str) -> Option<String> {
     }
     Some(out)
 }
+
+/// A response_item that feeds the *next* model request: user messages and
+/// tool-call outputs. Assistant-side items (messages, reasoning,
+/// function_call, …) are response output and land near the response end, so
+/// they must not anchor the request start.
+fn is_request_input(payload: &serde_json::Value) -> bool {
+    let kind = payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
+    if kind == "message" {
+        return payload.get("role").and_then(|r| r.as_str()) == Some("user");
+    }
+    // function_call_output / custom_tool_call_output / local_shell_call_output …
+    kind.ends_with("_output") && kind != "message_output"
+}
+
+/// Accepted window for the timestamp-derived duration. Below the floor the
+/// window is a timestamp-resolution artifact (usage events land a few ms
+/// after a fast tool output); above the ceiling it cannot be a single
+/// request — it is a stale anchor, e.g. a session resumed long after its
+/// last input item. Windows outside the range yield no duration at all.
+const MIN_DERIVED_REQUEST_MS: u64 = 100;
+const MAX_DERIVED_REQUEST_MS: u64 = 10 * 60_000;
 
 fn collect_jsonl(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(rd) = std::fs::read_dir(dir) else {
@@ -673,6 +725,100 @@ mod tests {
         format!(
             r#"{{"timestamp":"2026-08-29T13:44:00.000Z","ordinal":4,"type":"event_msg","payload":{{"type":"token_count","info":{{}},"rate_limits":{{"limit_id":"codex","primary":{{"used_percent":{primary_pct},"window_minutes":300,"resets_at":{resets}}},"secondary":{{"used_percent":50.0,"window_minutes":10080,"resets_at":1790000000}},"credits":{{"has_credits":true,"unlimited":false,"balance":"1000"}},"plan_type":"{plan}"}}}}}}"#
         )
+    }
+
+    #[test]
+    fn derives_approximate_duration_from_event_timestamps() {
+        // Real event shape (2026-09-10 rollout): the request starts with its
+        // input item and the model's streamed output items land at the end;
+        // the usage event is flushed afterwards (possibly after a tool ran),
+        // so only output items can bound the request. TTFT stays None.
+        let (_dir, home) = tmp_home();
+        let item = |ts: &str, payload: serde_json::Value| {
+            serde_json::json!({ "timestamp": ts, "type": "response_item", "payload": payload })
+                .to_string()
+        };
+        let user_input = item("2026-08-29T13:43:38.000Z", serde_json::json!({
+            "type": "message", "role": "user",
+            "content": [{ "type": "input_text", "text": "继续重构" }]
+        }));
+        let assistant_out = item("2026-08-29T13:43:44.900Z", serde_json::json!({
+            "type": "message", "role": "assistant",
+            "content": [{ "type": "output_text", "text": "…" }]
+        }));
+        let tool_output = item("2026-08-29T13:43:50.000Z", serde_json::json!({
+            "type": "function_call_output", "call_id": "c1", "output": "ok"
+        }));
+        let reasoning_out = item("2026-08-29T13:43:52.500Z", serde_json::json!({
+            "type": "reasoning", "summary": []
+        }));
+        let usage = |ts: &str, input: u64, out: u64, reasoning: u64, total: u64| {
+            serde_json::json!({
+                "timestamp": ts,
+                "type": "event_msg",
+                "payload": { "type": "token_count", "info": { "total_token_usage": {
+                    "input_tokens": input, "cached_input_tokens": 800,
+                    "cache_write_input_tokens": 0, "output_tokens": out,
+                    "reasoning_output_tokens": reasoning, "total_tokens": total } } }
+            })
+            .to_string()
+        };
+        write_rollout(
+            &home,
+            "rollout-dur.jsonl",
+            &[
+                meta_line(),
+                turn_line(),
+                user_input,
+                // Request 1: input 13:43:38.000 → last output 13:43:44.900
+                // = 6 900 ms. The usage event lands 827 ms later (tool flush)
+                // and must not extend the window.
+                assistant_out,
+                usage("2026-08-29T13:43:45.727Z", 1000, 100, 14, 1114),
+                // Request 2: tool output 13:43:50.000 → reasoning 13:43:52.500
+                // = 2 500 ms.
+                tool_output,
+                reasoning_out,
+                usage("2026-08-29T13:43:53.000Z", 900, 120, 30, 1020),
+                // Request 3: a 10 ms window is a timestamp artifact → no
+                // duration is recorded (and thus no speed sample).
+                item("2026-08-29T13:43:56.000Z", serde_json::json!({
+                    "type": "function_call_output", "call_id": "c2", "output": "ok"
+                })),
+                item("2026-08-29T13:43:56.010Z", serde_json::json!({
+                    "type": "message", "role": "assistant",
+                    "content": [{ "type": "output_text", "text": "ok" }]
+                })),
+                usage("2026-08-29T13:43:57.000Z", 950, 130, 30, 1080),
+                // Request 4: a stale anchor (session resumed long after its
+                // last input) would produce an hours-long window → dropped.
+                item("2026-08-29T14:05:00.000Z", serde_json::json!({
+                    "type": "message", "role": "assistant",
+                    "content": [{ "type": "output_text", "text": "晚些时候继续" }]
+                })),
+                usage("2026-08-29T14:05:01.000Z", 990, 140, 30, 1130),
+            ],
+        );
+        let mut entry = FileEntry::default();
+        let mut rl = None;
+        let p = home.join("sessions/2026/08/29").join("rollout-dur.jsonl");
+        assert!(advance_file(&p, &mut entry, &mut rl).unwrap());
+        let recs = &entry.session.records;
+        assert_eq!(recs.len(), 4);
+        assert_eq!(recs[0].duration_ms, Some(6_900));
+        assert_eq!(recs[0].ttft_ms, None);
+        assert_eq!(recs[1].duration_ms, Some(2_500));
+        assert_eq!(recs[2].duration_ms, None, "sub-100ms windows are dropped");
+        assert_eq!(recs[3].duration_ms, None, "over-10min windows are dropped");
+
+        let speed = crate::zcode::aggregate::compute_speed_stats(recs);
+        assert_eq!(speed.ttft_samples, 0);
+        assert_eq!(speed.speed_samples, 2);
+        assert!(speed.speed_approximate);
+        // Cumulative counters: request 1 delta = 100+14, request 2 delta =
+        // (120−100)+(30−14) = 36, request 3 is not a sample.
+        // 150 tokens over 9 400 ms.
+        assert!((speed.speed_tps.unwrap() - 150.0 / 9.4).abs() < 1e-6);
     }
 
     #[test]

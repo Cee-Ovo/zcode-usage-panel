@@ -51,9 +51,17 @@ describe("devMock multi-source data", () => {
   it("get_local_usage_view serves a ZCode-density view per local source", async () => {
     for (const provider of ["codex", "dsh", "claude-code"]) {
       const view = await mockInvoke<UsageViewDto>("get_local_usage_view", { provider, rangeKey: "7d", includeTrend: true });
-      // speed honestly unavailable
+      // TTFT is genuinely unrecorded in these logs — honestly null everywhere.
       expect(view.dash.speed.ttftAvgMs).toBeNull();
-      expect(view.dash.speed.speedTps).toBeNull();
+      if (provider === "codex") {
+        // Codex derives tok/s from per-line timestamps → present, flagged
+        // approximate (window includes the first-token wait).
+        expect(view.dash.speed.speedTps).not.toBeNull();
+        expect(view.dash.speed.speedApproximate).toBe(true);
+      } else {
+        expect(view.dash.speed.speedTps).toBeNull();
+        expect(view.dash.speed.speedApproximate).toBeFalsy();
+      }
       expect(view.dash.models.length).toBeGreaterThan(0);
       expect(view.trend).not.toBeNull();
       expect(view.trend!.buckets.length).toBeGreaterThan(0);

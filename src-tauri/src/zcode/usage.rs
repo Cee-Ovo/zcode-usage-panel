@@ -59,6 +59,12 @@ pub struct UsageRecord {
     /// cache tokens silently dropped from totals and hit-rate denominators.
     #[serde(default)]
     pub schema_exclusive: Option<bool>,
+    /// `true` when `duration_ms` was derived from source event timestamps
+    /// instead of being recorded by the source (Codex rollouts). Speed stats
+    /// may then use the whole-request window, flagged as approximate; sources
+    /// that merely lack a TTFT on some rows keep the exact-caliber rule.
+    #[serde(default)]
+    pub duration_derived: bool,
     /// Originating file path (for the data-source inspector).
     pub source_file: String,
 }
@@ -413,6 +419,7 @@ pub fn extract_record(line: &Value, ctx: &LineContext) -> Result<Option<UsageRec
         // usage field outside output_tokens; ZCode SQLite sets this itself.
         reasoning_in_output: false,
         schema_exclusive: None,
+        duration_derived: false,
         source_file: ctx.source_file.clone(),
     }))
 }
@@ -499,6 +506,7 @@ mod tests {
             total_override: None,
             reasoning_in_output: false,
             schema_exclusive: None,
+            duration_derived: false,
             source_file: "t".into(),
         };
         assert_eq!(r.display_total_tokens(), 350 + 35, "heuristic path unchanged");

@@ -103,6 +103,10 @@ pub fn delta_record(
     session_id: &str,
     project: Option<&str>,
     source_file: &str,
+    // Approximate request wall time derived from event timestamps
+    // (`usage_ts − last input item ts`), when the source provides it.
+    // `ttft_ms` stays `None` — that moment is genuinely unrecorded.
+    duration_ms: Option<u64>,
 ) -> UsageRecord {
     UsageRecord {
         ts_ms,
@@ -114,7 +118,8 @@ pub fn delta_record(
         reasoning_tokens: Some(delta.reasoning_output_tokens),
         cache_read_tokens: Some(delta.cached_input_tokens),
         cache_write_tokens: Some(delta.cache_write_input_tokens),
-        duration_ms: None,
+        duration_ms,
+        duration_derived: duration_ms.is_some(),
         ttft_ms: None,
         status: None,
         total_override: schema.total_override.then(|| delta.total_tokens),
@@ -171,6 +176,17 @@ pub struct SessionUsage {
     /// Workspace directory (the source's recorded `cwd`) when available.
     #[serde(default)]
     pub project_path: Option<String>,
+    /// Timestamp of the request-input item that started the current request
+    /// (Codex rollouts). Anchors the approximate per-request duration: usage
+    /// events are flushed *after* the turn's tool calls finish, so they can
+    /// never bound the request on their own.
+    #[serde(default)]
+    pub pending_input_ms: Option<i64>,
+    /// Timestamp of the last response-output item seen (Codex rollouts) —
+    /// the moment the model stopped streaming this request. Paired with
+    /// `pending_input_ms` it brackets the generation window.
+    #[serde(default)]
+    pub pending_output_ms: Option<i64>,
 }
 
 /// Byte-watermark parse state for one append-only log file.
@@ -334,6 +350,7 @@ mod tests {
             total_override: Some(value * 2),
             reasoning_in_output: false,
             schema_exclusive: Some(false),
+            duration_derived: false,
             source_file: "t".into(),
         }
     }
@@ -422,7 +439,7 @@ mod tests {
             reasoning_output_tokens: 14,
             total_tokens: 1114,
         };
-        let rec = delta_record(&delta, CODEX_DELTA, 5, "gpt-5.6-sol", "s1", None, "f.jsonl");
+        let rec = delta_record(&delta, CODEX_DELTA, 5, "gpt-5.6-sol", "s1", None, "f.jsonl", Some(3_600));
         assert_eq!(rec.display_total_tokens(), 1114, "source total wins");
         assert_eq!(rec.cache_read_tokens, Some(10));
         let back = record_delta(&rec);
@@ -437,7 +454,7 @@ mod tests {
             reasoning_output_tokens: 200,
             total_tokens: 1640,
         };
-        let rec = delta_record(&dsh, DSH_DELTA, 5, "deepseek-chat", "s1", None, "f.jsonl");
+        let rec = delta_record(&dsh, DSH_DELTA, 5, "deepseek-chat", "s1", None, "f.jsonl", None);
         assert_eq!(rec.display_total_tokens(), 1640, "documented disjoint sum wins");
         assert_eq!(rec.generated_tokens(), 500, "reasoning nested in output");
         assert_eq!(record_delta(&rec), dsh);

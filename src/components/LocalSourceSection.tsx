@@ -386,11 +386,13 @@ export function LocalSourceSection({
   );
 }
 
-/** 响应速度卡:本地日志无时间字段 → 恒为 unavailable,占位与 ZCode 对齐。 */
+/** 响应速度卡:TTFT 如实不可用(本地日志不记录首 token 时刻);Codex 的
+ * tok/s 由事件时间戳近似(窗口含首字等待),speedApproximate 时明确标注。 */
 function LocalSpeedCard({ speed }: { speed: SpeedStats | undefined }) {
   const hasSamples = !!speed && speed.ttftSamples > 0;
   const hasSpeed = !!speed && (speed.speedSamples > 0 || speed.speedTps !== null);
   const available = hasSamples || hasSpeed;
+  const approx = available && !hasSamples && !!speed?.speedApproximate;
   return (
     <MetricCard
       glass
@@ -402,6 +404,7 @@ function LocalSpeedCard({ speed }: { speed: SpeedStats | undefined }) {
             {hasSamples ? formatLatency(speed!.ttftAvgMs) : "—"}
             <span className="muted" style={{ fontWeight: 400 }}> · </span>
             {formatTps(speed!.speedTps)}
+            {approx && <span className="muted" style={{ fontWeight: 400 }}>（近似）</span>}
           </span>
         ) : (
           "unavailable"
@@ -409,11 +412,17 @@ function LocalSpeedCard({ speed }: { speed: SpeedStats | undefined }) {
       }
       unavailable={!available}
       sub={
-        available
-          ? `首 token P95 ${formatLatency(speed!.ttftP95Ms)} · 样本 ${speed!.ttftSamples}/${speed!.completedRequests} 条请求`
-          : undefined
+        approx
+          ? `tok/s 按事件时间戳近似(含首字等待) · 样本 ${speed!.speedSamples}/${speed!.completedRequests} 条请求`
+          : available
+            ? `首 token P95 ${formatLatency(speed!.ttftP95Ms)} · 样本 ${speed!.ttftSamples}/${speed!.completedRequests} 条请求`
+            : undefined
       }
-      hint={SPEED_UNAVAILABLE_HINT}
+      hint={
+        approx
+          ? "该数据源的日志不记录首 token 时刻,TTFT 如实显示不可用。\ntok/s 按请求起止事件的时间戳近似推导(窗口含首字等待,数值略偏低),已标注「近似」。"
+          : SPEED_UNAVAILABLE_HINT
+      }
     />
   );
 }

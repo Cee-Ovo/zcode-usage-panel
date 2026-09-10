@@ -606,6 +606,7 @@ fn apply_event_line(line: &str, session: &mut SessionUsage, source_file: &str) {
                 &session.session_id,
                 session.project_path.as_deref(),
                 source_file,
+                None,
             ));
             if session.first_ts_ms == 0 || (ts_ms > 0 && ts_ms < session.first_ts_ms) {
                 session.first_ts_ms = ts_ms;

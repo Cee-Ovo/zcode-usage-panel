@@ -262,6 +262,12 @@ pub struct SpeedStats {
     pub speed_p50_tps: Option<f64>,
     /// Records with a usable TTFT + duration + generated tokens.
     pub speed_samples: u64,
+    /// `true` when any speed sample had a duration but no source-provided
+    /// TTFT (e.g. Codex rollout timestamps): the window is then the whole
+    /// request, which includes the first-token wait, so the tok/s is an
+    /// approximation and the UI labels it as such.
+    #[serde(default)]
+    pub speed_approximate: bool,
     /// Completed (or status-unknown) requests in range — the denominator for
     /// coverage notes.
     pub completed_requests: u64,
@@ -307,12 +313,28 @@ where
         }
 
         let generated = r.generated_tokens();
-        if let (Some(ttft), Some(duration)) = (r.ttft_ms, r.duration_ms) {
-            if generated > 0 && duration > ttft {
-                let gen_ms = duration - ttft;
-                stats.generated_tokens += generated;
-                stats.generation_ms += gen_ms;
-                per_request_tps.push(generated as f64 * 1000.0 / gen_ms as f64);
+        if generated > 0 {
+            if let Some(duration) = r.duration_ms {
+                let gen_ms = match (r.ttft_ms, r.duration_derived) {
+                    // Source-provided TTFT: the generation window excludes it.
+                    (Some(ttft), _) if duration > ttft => duration - ttft,
+                    // Duration derived from event timestamps (Codex): the
+                    // window is the whole request and still contains the
+                    // first-token wait → flag the aggregate as approximate.
+                    (None, true) => {
+                        stats.speed_approximate = true;
+                        duration
+                    }
+                    // A source-recorded duration without a TTFT keeps the
+                    // exact-caliber rule: no usable generation window, no
+                    // sample (ZCode rows with missing timing stay excluded).
+                    _ => 0,
+                };
+                if gen_ms > 0 {
+                    stats.generated_tokens += generated;
+                    stats.generation_ms += gen_ms;
+                    per_request_tps.push(generated as f64 * 1000.0 / gen_ms as f64);
+                }
             }
         }
     }
@@ -417,6 +439,7 @@ mod tests {
             total_override: None,
             reasoning_in_output: false,
             schema_exclusive: None,
+            duration_derived: false,
             source_file: "t".into(),
         }
     }
@@ -438,6 +461,7 @@ mod tests {
             total_override: None,
             reasoning_in_output: false,
             schema_exclusive: None,
+            duration_derived: false,
             source_file: "t".into(),
         }
     }
@@ -519,6 +543,46 @@ mod tests {
         let s = compute_speed_stats(&[r]);
         assert_eq!(s.generated_tokens, 109);
         assert!((s.speed_tps.unwrap() - 109.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn speed_without_ttft_uses_whole_window_and_flags_approximate() {
+        // Codex rollouts: duration derived from event timestamps, no TTFT.
+        let derived = |r: UsageRecord| UsageRecord { duration_derived: true, ..r };
+        let recs = vec![
+            derived(speed_rec(1, 79, None, None, Some(21_700), Some("completed"))),
+            derived(speed_rec(2, 160, None, None, Some(8_000), None)),
+        ];
+        let s = compute_speed_stats(&recs);
+        assert_eq!(s.ttft_samples, 0);
+        assert!(s.ttft_avg_ms.is_none());
+        assert_eq!(s.speed_samples, 2);
+        assert!(s.speed_approximate);
+        // 239 tokens over 29.7 s ≈ 8.05 tok/s
+        assert!((s.speed_tps.unwrap() - 239.0 / 29.7).abs() < 1e-9);
+
+        // Zero-output duration-only rows never become samples and must not
+        // set the flag on their own.
+        let s2 = compute_speed_stats(&[derived(speed_rec(3, 0, None, None, Some(5_000), None))]);
+        assert_eq!(s2.speed_samples, 0);
+        assert!(!s2.speed_approximate);
+
+        // A source-recorded duration without TTFT (ZCode rows missing the
+        // timing column) keeps the exact-caliber rule: no sample, no flag.
+        let s_plain = compute_speed_stats(&[speed_rec(6, 100, None, None, Some(2_000), None)]);
+        assert_eq!(s_plain.speed_samples, 0);
+        assert!(!s_plain.speed_approximate);
+
+        // A single approximate sample flags a mixed aggregate.
+        let s3 = compute_speed_stats(&[
+            speed_rec(4, 100, None, Some(1_000), Some(2_000), None),
+            derived(speed_rec(5, 100, None, None, Some(2_000), None)),
+        ]);
+        assert!(s3.speed_approximate);
+        // Caliber note: sample 4 keeps the exact window (2000-1000), sample 5
+        // uses the whole window.
+        assert_eq!(s3.generation_ms, 3_000);
+        assert_eq!(s3.generated_tokens, 200);
     }
 
     #[test]

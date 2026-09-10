@@ -228,6 +228,7 @@ mod tests {
             total_override: None,
             reasoning_in_output: false,
             schema_exclusive: None,
+            duration_derived: false,
             source_file: "t".into(),
         }
     }

@@ -3,6 +3,7 @@
  *  backend serves, so visual verification works without Tauri. */
 
 import { beforeAll, describe, expect, it } from "vitest";
+import type { CostDetailDto, SessionDetailDto, SessionsPageDto, UsageViewDto } from "../src/lib/types";
 
 describe("devMock multi-source data", () => {
   let mockInvoke: typeof import("../src/lib/devMock").mockInvoke;
@@ -42,14 +43,14 @@ describe("devMock multi-source data", () => {
   });
 
   it("get_sessions_page IPC serves the same merged list", async () => {
-    const page = await mockInvoke("get_sessions_page", { query: "cc-", sort: "recent", page: 0, pageSize: 50 });
+    const page = await mockInvoke<SessionsPageDto>("get_sessions_page", { query: "cc-", sort: "recent", page: 0, pageSize: 50 });
     expect(page.total).toBe(2);
-    expect(page.items.every((s: { id: string }) => s.id.startsWith("cc-"))).toBe(true);
+    expect(page.items.every((s) => s.id.startsWith("cc-"))).toBe(true);
   });
 
   it("get_local_usage_view serves a ZCode-density view per local source", async () => {
     for (const provider of ["codex", "dsh", "claude-code"]) {
-      const view = await mockInvoke("get_local_usage_view", { provider, rangeKey: "7d", includeTrend: true });
+      const view = await mockInvoke<UsageViewDto>("get_local_usage_view", { provider, rangeKey: "7d", includeTrend: true });
       // speed honestly unavailable
       expect(view.dash.speed.ttftAvgMs).toBeNull();
       expect(view.dash.speed.speedTps).toBeNull();
@@ -59,12 +60,12 @@ describe("devMock multi-source data", () => {
       expect(view.costSummary.disclaimer).toContain("非实际 Billing");
       expect(view.dash.activeSession).not.toBeNull();
     }
-    const noTrend = await mockInvoke("get_local_usage_view", { provider: "codex", rangeKey: "today", includeTrend: false });
+    const noTrend = await mockInvoke<UsageViewDto>("get_local_usage_view", { provider: "codex", rangeKey: "today", includeTrend: false });
     expect(noTrend.trend).toBeNull();
   });
 
   it("provider-scoped cost detail returns priced line items", async () => {
-    const detail = await mockInvoke("cost_detail", {
+    const detail = await mockInvoke<CostDetailDto>("cost_detail", {
       range: "7d",
       model: "claude-sonnet-5",
       provider: "claude-code",
@@ -75,12 +76,12 @@ describe("devMock multi-source data", () => {
   });
 
   it("session detail for a prefixed id returns buckets and models", async () => {
-    const detail = await mockInvoke("get_session_detail", { sessionId: "cc-9f3a2b71-1111-2222-3333-444455556666" });
-    expect(detail.summary.id).toBe("cc-9f3a2b71-1111-2222-3333-444455556666");
-    expect(detail.summary.title).toContain("summary");
-    expect(detail.buckets.length).toBe(8);
-    expect(detail.models.length).toBeGreaterThan(0);
-    expect(await mockInvoke("get_session_detail", { sessionId: "cc-missing" })).toBeNull();
+    const detail = await mockInvoke<SessionDetailDto | null>("get_session_detail", { sessionId: "cc-9f3a2b71-1111-2222-3333-444455556666" });
+    expect(detail!.summary.id).toBe("cc-9f3a2b71-1111-2222-3333-444455556666");
+    expect(detail!.summary.title).toContain("summary");
+    expect(detail!.buckets.length).toBe(8);
+    expect(detail!.models.length).toBeGreaterThan(0);
+    expect(await mockInvoke<SessionDetailDto | null>("get_session_detail", { sessionId: "cc-missing" })).toBeNull();
   });
 
   it("providers overview includes the Claude Code card without fabricated quota", () => {

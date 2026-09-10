@@ -49,7 +49,9 @@ export const api = {
     invoke<SessionsPageDto>("get_sessions_page", { query, sort, page, pageSize }),
   sessionDetail: (sessionId: string) =>
     invoke<SessionDetailDto | null>("get_session_detail", { sessionId }),
-  modelDetail: (name: string) => invoke<ModelDetailDto | null>("get_model_detail", { name }),
+  /** `provider` scopes the lookup to one source (`zcode` by default). */
+  modelDetail: (name: string, provider?: string) =>
+    invoke<ModelDetailDto | null>("get_model_detail", { name, provider }),
   alerts: () => invoke<AlertEvent[]>("get_alerts"),
   activeModels: () => invoke<string[]>("get_active_models"),
   saveSettings: (settings: Settings) => invoke<Settings>("set_settings", { newSettings: settings }),

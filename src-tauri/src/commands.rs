@@ -168,6 +168,8 @@ pub fn query_sessions_page(
 #[serde(rename_all = "camelCase")]
 pub struct ModelDetailDto {
     pub name: String,
+    /// Source the numbers came from: `zcode` or a local provider id.
+    pub source: String,
     pub today: Agg,
     pub last_7d: Agg,
     pub last_30d: Agg,
@@ -493,25 +495,25 @@ pub fn get_local_usage_view(
         .local_usage_view(&provider, &range_key, include_trend, &state.pricing)
 }
 
-#[tauri::command]
-pub fn get_model_detail(name: String, state: State<'_, SharedAppState>) -> Option<ModelDetailDto> {
-    let now = now_ms();
-    let inner = state.engine.inner.lock().unwrap();
+/// Per-model detail over one source's raw records. `records` is the whole
+/// unfiltered set for that source; rows of other models are ignored.
+fn model_detail_from_records(
+    name: &str,
+    source: &str,
+    records: &[UsageRecord],
+    now: i64,
+) -> Option<ModelDetailDto> {
     let mut all_agg = Agg::default();
-    for r in inner.store.all() {
-        if r.model == name {
-            all_agg.add(r);
-        }
+    for r in records.iter().filter(|r| r.model == name) {
+        all_agg.add(r);
     }
     if all_agg.requests == 0 {
         return None;
     }
     let fold = |from_ms: i64| -> Agg {
-        inner
-            .store
-            .range(from_ms, now)
+        records
             .iter()
-            .filter(|r| r.model == name)
+            .filter(|r| r.model == name && r.ts_ms >= from_ms && r.ts_ms <= now)
             .fold(Agg::default(), |mut a, r| {
                 a.add(r);
                 a
@@ -521,11 +523,9 @@ pub fn get_model_detail(name: String, state: State<'_, SharedAppState>) -> Optio
     let last_7d = fold(now - 7 * 24 * 3600_000);
     let last_30d = fold(now - 30 * 24 * 3600_000);
     let (t_from, t_to) = (now - 30 * 24 * 3600_000, now);
-    let mine_30d: Vec<UsageRecord> = inner
-        .store
-        .range(t_from, t_to)
+    let mine_30d: Vec<UsageRecord> = records
         .iter()
-        .filter(|r| r.model == name)
+        .filter(|r| r.model == name && r.ts_ms >= t_from && r.ts_ms <= t_to)
         .cloned()
         .collect();
     let trend_30d = bucketize(&mine_30d, t_from, t_to, 30);
@@ -543,7 +543,8 @@ pub fn get_model_detail(name: String, state: State<'_, SharedAppState>) -> Optio
 
     let total_tokens = all_agg.total_tokens();
     Some(ModelDetailDto {
-        name,
+        name: name.to_string(),
+        source: source.to_string(),
         today,
         last_7d,
         last_30d,
@@ -558,6 +559,40 @@ pub fn get_model_detail(name: String, state: State<'_, SharedAppState>) -> Optio
         trend_30d,
         top_sessions,
     })
+}
+
+/// Model detail for one source. An empty `provider` (or `zcode`) reads the
+/// ZCode engine store; a local source id reads that provider's cached
+/// records, gated on it being enabled in settings.
+#[tauri::command]
+pub fn get_model_detail(
+    name: String,
+    provider: Option<String>,
+    state: State<'_, SharedAppState>,
+) -> Option<ModelDetailDto> {
+    let now = now_ms();
+    let provider = provider.unwrap_or_default();
+    if provider.is_empty() || provider == crate::providers::PROVIDER_ZCODE {
+        let inner = state.engine.inner.lock().unwrap();
+        return model_detail_from_records(
+            &name,
+            crate::providers::PROVIDER_ZCODE,
+            inner.store.all(),
+            now,
+        );
+    }
+    let settings = current_settings(&state).providers;
+    let enabled = match provider.as_str() {
+        crate::providers::PROVIDER_CODEX => settings.codex_enabled,
+        crate::providers::PROVIDER_DSH => settings.dsh_enabled,
+        crate::providers::PROVIDER_CLAUDE_CODE => settings.claude_code_enabled,
+        _ => false,
+    };
+    if !enabled {
+        return None;
+    }
+    let records = state.hub.local_records(&provider);
+    model_detail_from_records(&name, &provider, &records, now)
 }
 
 #[tauri::command]
@@ -1090,5 +1125,51 @@ mod sessions_page_tests {
         assert_eq!(tokens.items.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), vec!["b"]);
         assert!(query_sessions_page(&all, "", "recent", 2, 2).items.is_empty());
         assert_eq!(query_sessions_page(&all, "", "recent", 0, 999).page_size, 100);
+    }
+}
+
+#[cfg(test)]
+mod model_detail_tests {
+    use super::*;
+
+    fn rec(model: &str, ts_ms: i64, input: u64, session: &str) -> UsageRecord {
+        UsageRecord {
+            ts_ms,
+            model: model.into(),
+            session_id: Some(session.into()),
+            input_tokens: input,
+            output_tokens: 10,
+            source_file: "synthetic".into(),
+            ..Default::default()
+        }
+    }
+
+    /// One source's records only: other models and other sources must not
+    /// leak into the detail, and the DTO carries the source it came from.
+    #[test]
+    fn model_detail_scopes_to_model_and_stamps_source() {
+        let now = 1_756_300_000_000;
+        let day = 24 * 3600_000;
+        let records = vec![
+            rec("gpt-5.6-sol", now - 1_000, 300, "s1"),
+            rec("gpt-5.6-sol", now - 2 * day, 100, "s2"),
+            rec("gpt-5.6-mini", now - 1_000, 999, "s3"),
+            rec("gpt-5.6-sol", now - 40 * day, 77, "s4"),
+        ];
+        let detail = model_detail_from_records("gpt-5.6-sol", "codex", &records, now).unwrap();
+        assert_eq!(detail.name, "gpt-5.6-sol");
+        assert_eq!(detail.source, "codex");
+        assert_eq!(detail.all_time.requests, 3);
+        assert_eq!(detail.last_30d.requests, 2);
+        assert_eq!(detail.last_7d.requests, 2);
+        // Top sessions only count the 30-day window, heaviest first.
+        assert_eq!(
+            detail.top_sessions,
+            vec![("s1".to_string(), 310), ("s2".to_string(), 110)]
+        );
+        assert!(model_detail_from_records("not-used", "codex", &records, now).is_none());
+        // A provider with no records of its own yields nothing rather than
+        // borrowing another source's numbers.
+        assert!(model_detail_from_records("gpt-5.6-sol", "dsh", &[], now).is_none());
     }
 }

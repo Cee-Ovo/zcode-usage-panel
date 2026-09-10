@@ -1,5 +1,5 @@
 /** Display-layer model naming: the （来源） badge must be suffix-only,
- *  idempotent, and never applied to unattributed (e.g. ZCode) models —
+ *  idempotent, and only applied when the caller knows the source —
  *  raw names must stay untouched for queries/IPC/map keys. */
 
 import { describe, expect, it } from "vitest";
@@ -7,7 +7,9 @@ import {
   CLAUDE_CODE_BADGE,
   CODEX_BADGE,
   DSH_BADGE,
+  ZCODE_BADGE,
   displayModelName,
+  displayModelParts,
 } from "../src/lib/modelDisplay";
 
 describe("displayModelName", () => {
@@ -20,12 +22,16 @@ describe("displayModelName", () => {
     expect(displayModelName("gpt-5.6-sol（Codex）", "codex")).toBe("gpt-5.6-sol（Codex）");
   });
 
-  it("passes ZCode and unattributed models through unchanged", () => {
-    expect(displayModelName("gpt-5.6-sol", "zcode")).toBe("gpt-5.6-sol");
+  it("tags ZCode rows on multi-source surfaces", () => {
+    expect(displayModelName("glm-5.3", "zcode")).toBe(`glm-5.3${ZCODE_BADGE}`);
+    expect(displayModelName(`glm-5.3${ZCODE_BADGE}`, "zcode")).toBe(`glm-5.3${ZCODE_BADGE}`);
+  });
+
+  it("passes unattributed models through unchanged", () => {
     expect(displayModelName("gpt-5.6-sol", null)).toBe("gpt-5.6-sol");
     // no guessing from the name itself — "codex" substring is not a source
-    expect(displayModelName("codex-fast", "zcode")).toBe("codex-fast");
     expect(displayModelName("codex-fast", null)).toBe("codex-fast");
+    expect(displayModelName("codex-fast")).toBe("codex-fast");
   });
 
   it("appends the DSH and Claude Code badges for their sources", () => {
@@ -48,5 +54,22 @@ describe("displayModelName", () => {
 
   it("badge constant matches the visible suffix", () => {
     expect(displayModelName("m", "codex").endsWith(CODEX_BADGE)).toBe(true);
+  });
+
+  it("splits name and badge for layouts that truncate only the name", () => {
+    expect(displayModelParts("gpt-5.6-sol", "codex")).toEqual({
+      name: "gpt-5.6-sol",
+      badge: CODEX_BADGE,
+    });
+    expect(displayModelParts("gpt-5.6-sol", null)).toEqual({ name: "gpt-5.6-sol", badge: null });
+    // already-badged names must not nest a second badge
+    expect(displayModelParts(`gpt-5.6-sol${CODEX_BADGE}`, "codex")).toEqual({
+      name: "gpt-5.6-sol",
+      badge: CODEX_BADGE,
+    });
+    expect(displayModelParts("glm-5.3", "zcode")).toEqual({
+      name: "glm-5.3",
+      badge: ZCODE_BADGE,
+    });
   });
 });

@@ -23,6 +23,10 @@ ZCode Usage Panel 是一个常驻 Windows 桌面的用量驾驶舱：把 ZCode�
 
 四个来源的会话合并在一个列表里，前缀一眼可辨：`cx-`（Codex）、`cc-`（Claude Code）、`dsh-`（DSH）、无前缀（ZCode）。会话名、项目、模型、起止时间、Token、命中率字段齐全，长值截断 + 悬停看全；全文搜索、分页、会话内趋势详情都开箱即用。历史归档（如 Codex `archived_sessions/`、DSH zstd 压缩流）一并覆盖。
 
+### 🧮 四源合并的模型页
+
+模型页把四个来源的模型行并成一张表，行尾括注来源（`（ZCode）` / `（Codex）` / `（DSH）` / `（Claude Code）`）——同一个模型被两个 agent 用也不会混淆。每行给出总量、Input / Output / Reasoning / Cache、命中率与请求数、按官方单价的估算花费、响应速度；点开是单模型详情：今天 / 7 天 / 30 天 / 全量、30 天趋势、Top 10 会话分布，且按来源取数，不会串口径。
+
 ### 🪙 服务额度与提醒
 
 - **Codex**：官方 rate_limits（5 小时窗口 / 周额度 / credits），完全离线读取；

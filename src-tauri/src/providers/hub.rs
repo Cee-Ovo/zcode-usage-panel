@@ -694,6 +694,21 @@ impl ProviderHub {
         }
     }
 
+    /// Raw records of one local provider, oldest first. Empty for an unknown
+    /// id; callers gate on the provider being enabled in settings.
+    pub fn local_records(&self, provider: &str) -> Vec<crate::zcode::usage::UsageRecord> {
+        let inner = self.inner.lock().unwrap();
+        let Some((_, contribs)) = Self::local_contribs(&inner, provider) else {
+            return Vec::new();
+        };
+        let mut records: Vec<crate::zcode::usage::UsageRecord> = contribs
+            .iter()
+            .flat_map(|c| c.records.iter().cloned())
+            .collect();
+        records.sort_by_key(|r| r.ts_ms);
+        records
+    }
+
     /// Prefixed session summaries of one local provider (cx- / cc- / dsh-).
     pub fn local_session_summaries(&self, provider: &str) -> Vec<crate::zcode::aggregate::SessionSummary> {
         let inner = self.inner.lock().unwrap();

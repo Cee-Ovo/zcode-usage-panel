@@ -1,5 +1,7 @@
 /** TypeScript mirrors of the Rust DTOs (serde camelCase). */
 
+import type { ModelSource } from "./modelDisplay";
+
 export interface FieldStat {
   sum: number;
   present: number;
@@ -129,6 +131,8 @@ export interface HistoryHealth {
 
 export interface ModelDetailDto {
   name: string;
+  /** Source the numbers came from: `zcode` or a local provider id. */
+  source?: ModelSource;
   today: Agg;
   last7d: Agg;
   last30d: Agg;

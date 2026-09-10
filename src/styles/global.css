@@ -339,12 +339,28 @@ body {
   background: color-mix(in srgb, var(--zup-blue-500) 8%, transparent);
 }
 
+/* Name cell: the model name truncates, the （来源） badge never does. */
 .model-row .name {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
   font-weight: 600;
   font-size: 12.5px;
+}
+.model-row .name > .model-rank,
+.model-row .name > .model-source-badge {
+  flex: none;
+}
+.model-row .name > .model-name-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.model-row .name > .model-source-badge {
+  font-weight: 500;
+  color: var(--zup-text-3);
 }
 
 .model-row .num {

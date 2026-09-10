@@ -972,11 +972,19 @@ export async function mockInvoke<T>(cmd: string, args: Record<string, unknown> =
     }
     case "get_model_detail": {
       const name = String(args.name ?? "glm-5.3");
-      const model = state.dash?.models?.find((entry) => entry.name === name) ?? state.dash?.models?.[0];
+      const source = typeof args.provider === "string" && args.provider ? args.provider : "zcode";
+      // Local sources resolve against their own mock view, mirroring the
+      // backend's provider-scoped lookup.
+      const pool =
+        source === "zcode"
+          ? state.dash?.models
+          : mockLocalUsageView(source, String(args.rangeKey ?? "today"), false).dash.models;
+      const model = pool?.find((entry) => entry.name === name) ?? pool?.[0] ?? state.dash?.models?.[0];
       const modelAgg = model?.agg ?? state.dash?.agg;
       const total = modelAgg ? modelAgg.input + modelAgg.output + modelAgg.reasoning.sum + modelAgg.cacheRead.sum + modelAgg.cacheWrite.sum : 0;
       return {
         name,
+        source,
         today: modelAgg,
         last7d: modelAgg,
         last30d: modelAgg,

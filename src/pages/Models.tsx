@@ -1,13 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Glass } from "open-glass-ui";
 import { AnimatedNumber } from "../components/AnimatedNumber";
 import { MetricCard } from "../components/MetricCard";
 import { TrendChart } from "../components/TrendChart";
-import { api } from "../lib/ipc";
+import { api, onEvent } from "../lib/ipc";
 import { store, useStore } from "../lib/store";
-import type { ModelDetailDto } from "../lib/types";
+import type { ModelCost, ModelDetailDto, UsageViewDto } from "../lib/types";
 import { cacheHitRate, totalTokens } from "../lib/types";
+import { displayModelName, displayModelParts } from "../lib/modelDisplay";
+import {
+  enabledModelProviders,
+  LOCAL_MODEL_PROVIDERS,
+  mergeModelRows,
+  type LocalModelProvider,
+} from "../lib/modelRows";
 import { formatCny, formatFull, formatModelSpeed, formatModelSpeedHint, formatPercent, formatRelative, formatTokens, shortSessionId } from "../lib/format";
 import { listItemVariants, rowGestures, softSpring } from "../lib/motion";
 import { FxCloseChip } from "../components/fx";
@@ -17,9 +24,67 @@ export function ModelsPage() {
   const dash = useStore((s) => s.dash);
   const detail = useStore((s) => s.modelDetail);
   const costSummary = useStore((s) => s.costSummary);
-  const costByModel = new Map(
-    (costSummary?.models ?? []).map((m) => [m.name, m]),
-  );
+  const rangeKey = useStore((s) => s.rangeKey);
+  const providers = useStore((s) => s.settings?.providers);
+  const [localViews, setLocalViews] = useState<
+    Partial<Record<LocalModelProvider, UsageViewDto | null>>
+  >({});
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  const enabled = useMemo(() => enabledModelProviders(providers), [providers]);
+  const enabledKey = enabled.join(",");
+
+  // Each enabled local source contributes its own model rows; the ZCode rows
+  // arrive through the shared dashboard slice instead.
+  useEffect(() => {
+    let disposed = false;
+    const wanted = enabledKey ? (enabledKey.split(",") as LocalModelProvider[]) : [];
+    Promise.all(
+      wanted.map((p) =>
+        api
+          .localUsageView(p, rangeKey, false)
+          .then((view) => [p, view] as const)
+          .catch(() => [p, null] as const),
+      ),
+    ).then((entries) => {
+      if (disposed) return;
+      setLocalViews(Object.fromEntries(entries) as Partial<Record<LocalModelProvider, UsageViewDto | null>>);
+    });
+    return () => {
+      disposed = true;
+    };
+  }, [enabledKey, rangeKey, refreshTick]);
+
+  useEffect(() => {
+    const bump = () => setRefreshTick((t) => t + 1);
+    let alive = true;
+    const unsubs: Array<() => void> = [];
+    onEvent<import("../lib/types").ProviderSnapshot[]>("provider-update", (snaps) => {
+      if (snaps?.some((p) => LOCAL_MODEL_PROVIDERS.includes(p.provider as LocalModelProvider))) bump();
+    })
+      .then((u) => {
+        if (alive) unsubs.push(u);
+        else u();
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+      unsubs.forEach((u) => u());
+    };
+  }, []);
+
+  const rows = useMemo(() => mergeModelRows(dash, localViews), [dash, localViews]);
+  const costBySource = useMemo(() => {
+    const index = new Map<string, Map<string, ModelCost>>();
+    index.set("zcode", new Map((costSummary?.models ?? []).map((m) => [m.name, m])));
+    for (const p of LOCAL_MODEL_PROVIDERS) {
+      const view = localViews[p];
+      if (view) {
+        index.set(p, new Map((view.costSummary?.models ?? []).map((m) => [m.name, m])));
+      }
+    }
+    return index;
+  }, [costSummary, localViews]);
 
   if (!dash) return <div className="empty-state">加载中…</div>;
 
@@ -29,16 +94,21 @@ export function ModelsPage() {
         <div>
           <span className="page-eyebrow">MODEL BREAKDOWN</span>
           <h1>模型</h1>
-          <p>按模型查看 Token 构成、占比与估算花费。</p>
+          <p>按模型查看 Token 构成、占比与估算花费,括号标注数据来源。</p>
         </div>
       </header>
       <Glass className="panel sample-glass page-surface models-surface" material="regular" renderer="css" interactive={false}>
-        <div className="panel-title">全部模型(当前时间范围)</div>
-        {dash.models.length === 0 && <div className="empty-state">该范围内没有模型调用</div>}
+        <div className="panel-title">全部模型(四源合并 · 当前时间范围)</div>
+        {rows.length === 0 && <div className="empty-state">该范围内没有模型调用</div>}
         <AnimatePresence initial={false}>
-          {dash.models.map((row, i) => (
+          {rows.map(({ source, row }, i) => {
+            const parts = displayModelParts(row.name, source);
+            const tagged = displayModelName(row.name, source);
+            const cost = costBySource.get(source)?.get(row.name);
+            const hit = cacheHitRate(row.agg);
+            return (
             <motion.div
-              key={row.name}
+              key={`${source}:${row.name}`}
               className="model-row"
               role="button"
               tabIndex={0}
@@ -54,18 +124,17 @@ export function ModelsPage() {
               transition={softSpring}
               onClick={() =>
                 api
-                  .modelDetail(row.name)
+                  .modelDetail(row.name, source)
                   .then((d) => store.set({ modelDetail: d }))
                   .catch(() => {})
               }
               title="点击查看模型详情"
             >
               <div>
-                <div className="name">
-                  <span className="muted" style={{ marginRight: 6 }}>
-                    {i + 1}.
-                  </span>
-                  {row.name}
+                <div className="name" title={tagged}>
+                  <span className="muted model-rank">{i + 1}.</span>
+                  <span className="model-name-text">{parts.name}</span>
+                  {parts.badge && <span className="model-source-badge">{parts.badge}</span>}
                 </div>
               </div>
               <span className="num">{formatTokens(totalTokens(row.agg))}</span>
@@ -78,26 +147,22 @@ export function ModelsPage() {
                 {row.agg.cacheRead.present > 0 ? formatTokens(row.agg.cacheRead.sum) : "—"}
               </span>
               <span className="num">
-                {cacheHitRate(row.agg) === null
-                  ? "—"
-                  : `${(cacheHitRate(row.agg)! * 100).toFixed(0)}% · ${formatFull(row.agg.requests)}`}
+                {hit === null ? "—" : `${(hit * 100).toFixed(0)}% · ${formatFull(row.agg.requests)}`}
               </span>
               <span className="num" style={{ color: "var(--zup-blue-600)" }}>
-                {(() => {
-                  const c = costByModel.get(row.name);
-                  return c?.priced ? `≈ ${formatCny(c.costCny)}` : "价格未知";
-                })()}
+                {cost?.priced ? `≈ ${formatCny(cost.costCny)}` : "价格未知"}
               </span>
               <span className="num" title={formatModelSpeedHint(row.speed)}>
                 {formatModelSpeed(row.speed)}
               </span>
             </motion.div>
-          ))}
+            );
+          })}
         </AnimatePresence>
       </Glass>
 
       <AnimatePresence>
-        {detail && <ModelDetailCard key={detail.name} detail={detail} />}
+        {detail && <ModelDetailCard key={`${detail.source ?? "zcode"}:${detail.name}`} detail={detail} />}
       </AnimatePresence>
     </div>
   );
@@ -114,9 +179,13 @@ function ModelDetailCard({ detail }: { detail: ModelDetailDto }) {
     detail.allTime.input + detail.allTime.output + detail.allTime.reasoning.sum || 1;
 
   return (
-    <AccessibleDialog label={`模型详情 · ${detail.name}`} onClose={() => store.set({ modelDetail: null })} glass>
+    <AccessibleDialog
+      label={`模型详情 · ${displayModelName(detail.name, detail.source ?? null)}`}
+      onClose={() => store.set({ modelDetail: null })}
+      glass
+    >
         <div className="panel-title">
-          模型详情 · {detail.name}
+          模型详情 · {displayModelName(detail.name, detail.source ?? null)}
           <span className="right">
             <FxCloseChip onClick={() => store.set({ modelDetail: null })} />
           </span>

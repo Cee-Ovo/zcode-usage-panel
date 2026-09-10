@@ -140,8 +140,9 @@
 .zup-frame .models-surface {
   overflow-x: hidden;
 }
+/* 名称列留出（来源）徽标的宽度,徽标本身不参与截断。 */
 .zup-frame .models-surface .model-row {
-  grid-template-columns: minmax(120px, 1.5fr) repeat(6, minmax(48px, 1fr)) minmax(80px, auto) minmax(108px, auto);
+  grid-template-columns: minmax(180px, 1.9fr) repeat(5, minmax(46px, 1fr)) minmax(76px, 1.2fr) minmax(76px, auto) minmax(104px, auto);
   min-width: 0;
 }
 .zup-frame .models-surface .model-row > .num {

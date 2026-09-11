@@ -73,6 +73,48 @@ pub struct ActiveSession {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SpeedWindowStats {
+    /// Trailing window length in ms (24h / 7d), wall-clock relative to now.
+    pub window_ms: i64,
+    pub speed_tps: Option<f64>,
+    pub speed_samples: u64,
+    pub completed_requests: u64,
+    /// Same convention as SpeedStats: window covers the whole request when
+    /// the source records no TTFT (Codex rollouts).
+    #[serde(default)]
+    pub speed_approximate: bool,
+}
+
+/// Fixed trailing windows behind the speed card's trend line, shortest first.
+pub(crate) const SPEED_TREND_WINDOWS_MS: &[i64] = &[86_400_000, 7 * 86_400_000];
+
+/// Speed stats over fixed trailing windows, computed from the source's FULL
+/// record history — never the selected-range slice — so "7d" means seven days
+/// even while the dashboard shows "today". Windows with no samples come back
+/// with `speed_tps: None`; the UI hides the line then.
+pub(crate) fn speed_trend_windows(records: &[UsageRecord], now: i64) -> Vec<SpeedWindowStats> {
+    SPEED_TREND_WINDOWS_MS
+        .iter()
+        .map(|w| {
+            let from = now - w;
+            let slice: Vec<&UsageRecord> = records
+                .iter()
+                .filter(|r| r.ts_ms >= from && r.ts_ms <= now)
+                .collect();
+            let s = compute_speed_stats(slice);
+            SpeedWindowStats {
+                window_ms: *w,
+                speed_tps: s.speed_tps,
+                speed_samples: s.speed_samples,
+                completed_requests: s.completed_requests,
+                speed_approximate: s.speed_approximate,
+            }
+        })
+        .collect()
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DashboardDto {
     pub range_key: String,
     pub from_ms: i64,
@@ -83,6 +125,9 @@ pub struct DashboardDto {
     /// TTFT / tok-s statistics for the same range (all-None when the source
     /// records no timing fields).
     pub speed: SpeedStats,
+    /// Trailing-window tps (24h / 7d) for the trend line under the speed
+    /// card; empty on the boot-snapshot path.
+    pub speed_windows: Vec<SpeedWindowStats>,
     /// true while numbers come from the persisted boot snapshot.
     pub restored: bool,
     pub data_error: Option<String>,
@@ -313,6 +358,14 @@ fn dashboard_from_inner(range_key: &str, inner: &crate::engine::EngineInner, now
         a
     });
     let speed = compute_speed_stats(records);
+    // Trend windows span the store's full history ( widest window is 7d ),
+    // independent of the selected range; nothing to show on the boot path.
+    let speed_windows = if inner.store.is_empty() {
+        Vec::new()
+    } else {
+        let widest = SPEED_TREND_WINDOWS_MS.iter().max().copied().unwrap_or(0);
+        speed_trend_windows(inner.store.range(now - widest, now), now)
+    };
     let active = if inner.store.is_empty() {
         None
     } else {
@@ -337,6 +390,7 @@ fn dashboard_from_inner(range_key: &str, inner: &crate::engine::EngineInner, now
         models,
         active_session: active,
         speed,
+        speed_windows,
         restored,
         data_error: crate::engine::gate_error(inner.error_streak, inner.last_error.clone()),
     }
@@ -1171,5 +1225,54 @@ mod model_detail_tests {
         // A provider with no records of its own yields nothing rather than
         // borrowing another source's numbers.
         assert!(model_detail_from_records("gpt-5.6-sol", "dsh", &[], now).is_none());
+    }
+}
+
+#[cfg(test)]
+mod speed_trend_tests {
+    use super::*;
+
+    fn speed_rec(ts_ms: i64, output: u64, ttft: u64, duration: u64) -> UsageRecord {
+        UsageRecord {
+            ts_ms,
+            model: "m".into(),
+            output_tokens: output,
+            ttft_ms: Some(ttft),
+            duration_ms: Some(duration),
+            source_file: "synthetic".into(),
+            ..Default::default()
+        }
+    }
+
+    /// Windows are wall-clock trailing spans: a 3-day-old request counts only
+    /// toward 7d, a 10-day-old one toward neither — and each window keeps the
+    /// exact speed caliber (weighted by generation time).
+    #[test]
+    fn speed_trend_windows_bucket_by_wall_clock() {
+        let now = 1_756_300_000_000_i64;
+        let day = 86_400_000_i64;
+        let records = vec![
+            // 100 tokens over (2000-1000)ms = 100 tps, inside both windows.
+            speed_rec(now - 3_600_000, 100, 1000, 2000),
+            // 100 tokens over (11000-1000)ms = 10 tps, only inside 7d.
+            speed_rec(now - 3 * day, 100, 1000, 11_000),
+            // Outside every window.
+            speed_rec(now - 10 * day, 999, 1000, 2000),
+        ];
+        let windows = speed_trend_windows(&records, now);
+        assert_eq!(windows.len(), 2);
+        let h24 = &windows[0];
+        let d7 = &windows[1];
+        assert_eq!(h24.window_ms, day);
+        assert_eq!(h24.speed_samples, 1);
+        assert!((h24.speed_tps.unwrap() - 100.0).abs() < 1e-6);
+        assert_eq!(d7.window_ms, 7 * day);
+        assert_eq!(d7.speed_samples, 2);
+        // Weighted: 200 tokens over 11000ms of generation.
+        assert!((d7.speed_tps.unwrap() - 200.0 * 1000.0 / 11_000.0).abs() < 1e-6);
+        // Empty history still yields both windows, honestly null.
+        let empty = speed_trend_windows(&[], now);
+        assert_eq!(empty.len(), 2);
+        assert!(empty.iter().all(|w| w.speed_tps.is_none() && w.speed_samples == 0));
     }
 }

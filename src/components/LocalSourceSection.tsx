@@ -3,13 +3,13 @@ import { AnimatePresence, motion } from "motion/react";
 import { Glass } from "open-glass-ui";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { CostDetailModal } from "./CostDetailModal";
-import { MetricCard, InfoDot } from "./MetricCard";
+import { MetricCard, InfoDot, SpeedTrendLine } from "./MetricCard";
 import { TrendChart } from "./TrendChart";
 import { FxButton } from "./fx";
 import { api, onEvent } from "../lib/ipc";
 import { listItemVariants, rowGestures, softSpring } from "../lib/motion";
 import { useStore } from "../lib/store";
-import type { ModelCost, ModelRow, SpeedStats, UsageViewDto } from "../lib/types";
+import type { ModelCost, ModelRow, SpeedStats, SpeedWindowStats, UsageViewDto } from "../lib/types";
 import { cacheHitRate, totalTokens } from "../lib/types";
 import { RANGE_LABELS } from "../lib/types";
 import { displayModelName, type ModelSource } from "../lib/modelDisplay";
@@ -250,7 +250,7 @@ export function LocalSourceSection({
           label="请求次数"
           value={agg ? <AnimatedNumber value={agg.requests} format={formatFull} /> : "—"}
         />
-        <LocalSpeedCard speed={dash?.speed} />
+        <LocalSpeedCard speed={dash?.speed} windows={dash?.speedWindows} />
         <MetricCard
           glass
           layoutEnabled={false}
@@ -387,8 +387,15 @@ export function LocalSourceSection({
 }
 
 /** 响应速度卡:TTFT 如实不可用(本地日志不记录首 token 时刻);Codex 的
- * tps 由事件时间戳近似(窗口含首字等待),speedApproximate 时明确标注。 */
-function LocalSpeedCard({ speed }: { speed: SpeedStats | undefined }) {
+ * tps 由事件时间戳近似(窗口含首字等待),speedApproximate 时明确标注。
+ * 第二行为近 24h / 近 7 天固定窗口对比(样本不足自动隐藏)。 */
+function LocalSpeedCard({
+  speed,
+  windows,
+}: {
+  speed: SpeedStats | undefined;
+  windows: SpeedWindowStats[] | undefined;
+}) {
   const hasSamples = !!speed && speed.ttftSamples > 0;
   const hasSpeed = !!speed && (speed.speedSamples > 0 || speed.speedTps !== null);
   const available = hasSamples || hasSpeed;
@@ -412,11 +419,17 @@ function LocalSpeedCard({ speed }: { speed: SpeedStats | undefined }) {
       }
       unavailable={!available}
       sub={
-        approx
-          ? `tps 按事件时间戳近似(含首字等待) · 样本 ${speed!.speedSamples}/${speed!.completedRequests} 条请求`
-          : available
-            ? `首 token P95 ${formatLatency(speed!.ttftP95Ms)} · 样本 ${speed!.ttftSamples}/${speed!.completedRequests} 条请求`
-            : undefined
+        approx ? (
+          <>
+            <div>{`tps 按事件时间戳近似(含首字等待) · 样本 ${speed!.speedSamples}/${speed!.completedRequests} 条请求`}</div>
+            <SpeedTrendLine windows={windows} />
+          </>
+        ) : available ? (
+          <>
+            <div>{`首 token P95 ${formatLatency(speed!.ttftP95Ms)} · 样本 ${speed!.ttftSamples}/${speed!.completedRequests} 条请求`}</div>
+            <SpeedTrendLine windows={windows} />
+          </>
+        ) : undefined
       }
       hint={
         approx

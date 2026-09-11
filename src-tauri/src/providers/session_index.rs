@@ -213,6 +213,9 @@ pub fn build_usage_view(
         models,
         active_session: active,
         speed,
+        // `records` is this source's complete history — the trend windows
+        // stay honest 24h/7d spans regardless of the selected range.
+        speed_windows: crate::commands::speed_trend_windows(records, now_ms),
         restored: false,
         data_error: None,
     };

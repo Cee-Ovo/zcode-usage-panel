@@ -349,6 +349,13 @@ function mockLocalUsageView(provider: string, rangeKey: string, includeTrend: bo
       ],
     },
     speed: codexApproxSpeed,
+    // Codex 预览:近 24h 略低于 7 天基线,触发趋势行的 ↓ 分支。
+    speedWindows: provider === "codex"
+      ? [
+          { windowMs: hour * 24, speedTps: 19.8, speedSamples: Math.max(1, Math.round(breakdown.requests * 0.3)), completedRequests: Math.max(1, Math.round(breakdown.requests * 0.36)), speedApproximate: true },
+          { windowMs: hour * 24 * 7, speedTps: 21.9, speedSamples: Math.max(1, Math.round(breakdown.requests * 0.8)), completedRequests: breakdown.requests, speedApproximate: true },
+        ]
+      : [],
     restored: false,
     dataError: null,
   };
@@ -502,6 +509,11 @@ export const mockState: Partial<AppState> = {
       generatedTokens: 71_240,
       generationMs: 954_000,
     },
+    // 预览:近 24h 高于 7 天基线,触发趋势行的 ↑ 分支。
+    speedWindows: [
+      { windowMs: hour * 24, speedTps: 81.3, speedSamples: 34, completedRequests: 41 },
+      { windowMs: hour * 24 * 7, speedTps: 72.8, speedSamples: 148, completedRequests: 164 },
+    ],
   } satisfies DashboardDto,
   trend: {
     rangeKey: "today",

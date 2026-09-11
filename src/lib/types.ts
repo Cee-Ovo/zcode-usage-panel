@@ -39,6 +39,16 @@ export interface SpeedStats {
   generationMs: number;
 }
 
+/** 速度卡趋势行:固定 trailing 窗口(24h / 7d)的加权 tps,与所选时间范围无关。 */
+export interface SpeedWindowStats {
+  windowMs: number;
+  speedTps: number | null;
+  speedSamples: number;
+  completedRequests: number;
+  /** 与 SpeedStats 同口径:窗口含首字等待(Codex 事件时间戳推导)。 */
+  speedApproximate?: boolean;
+}
+
 export interface ModelStat {
   name: string;
   agg: Agg;
@@ -77,6 +87,8 @@ export interface DashboardDto {
   models: ModelRow[];
   activeSession: ActiveSession | null;
   speed: SpeedStats;
+  /** 速度卡趋势行的窗口数据(24h / 7d);boot 快照路径与旧 mock 可能缺省。 */
+  speedWindows?: SpeedWindowStats[];
   restored: boolean;
   dataError: string | null;
 }

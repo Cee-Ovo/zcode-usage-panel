@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated_at": "2026-09-09",
+  "updated_at": "2026-09-11",
   "entries": [
     {
       "provider": "zai",
@@ -66,6 +66,9 @@
         },
         {
           "model": "glm-5.2",
+          "aliases": [
+            "z-ai/glm-5.2"
+          ],
           "currency": "USD",
           "pricing": {
             "type": "flat",
@@ -114,6 +117,39 @@
       ],
       "models": [
         {
+          "model": "deepseek-flash",
+          "aliases": [
+            "deepseek-v4.1-flash",
+            "deepseek-v4.1-flash-expires-on-0910"
+          ],
+          "currency": "CNY",
+          "pricing": {
+            "type": "tiers",
+            "rule": "beijing_workday_peak",
+            "peak": {
+              "input_per_m": 2.0,
+              "cache_hit_per_m": 0.04,
+              "output_per_m": 8.0
+            },
+            "offpeak": {
+              "input_per_m": 1.0,
+              "cache_hit_per_m": 0.02,
+              "output_per_m": 4.0
+            },
+            "cache_storage_per_m": null
+          },
+          "reasoning_policy": "included_in_output",
+          "source_url": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
+          "updated_at": "2026-09-11",
+          "promo": null,
+          "notes": [
+            "现役型号（版本 DeepSeek-V4.1-Flash），原有的 v4-flash 已下线、请求由该型号承接并按 Flash 价计费（官方页）",
+            "expires-on-0910 试验 id 与之同价（官方页说明按 Flash 计费）",
+            "高峰=北京时间工作日 9:00–12:00、14:00–18:00，其余空闲（空闲价为高峰一半）",
+            "缓存存储免费（官方）"
+          ]
+        },
+        {
           "model": "deepseek-v4-flash",
           "aliases": [
             "deepseek-v4-flash-0731"
@@ -123,22 +159,23 @@
             "type": "tiers",
             "rule": "beijing_workday_peak",
             "peak": {
-              "input_per_m": 3.0,
-              "cache_hit_per_m": 0.1,
-              "output_per_m": 9.0
+              "input_per_m": 2.0,
+              "cache_hit_per_m": 0.04,
+              "output_per_m": 8.0
             },
             "offpeak": {
-              "input_per_m": 1.5,
-              "cache_hit_per_m": 0.05,
-              "output_per_m": 4.5
+              "input_per_m": 1.0,
+              "cache_hit_per_m": 0.02,
+              "output_per_m": 4.0
             },
             "cache_storage_per_m": null
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-11",
           "promo": null,
           "notes": [
+            "旧 id 已退役：官方页说明仍可调用，但请求实际由 DeepSeek-V4.1-Flash 承接并按 Flash 价格计费，故按现役 Flash 价录入（2026-09-11 核对）",
             "高峰=北京时间工作日 9:00–12:00、14:00–18:00，其余空闲（空闲价为高峰一半）",
             "上下文硬盘缓存存储免费（官方）"
           ]
@@ -163,11 +200,12 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-11",
           "promo": null,
           "notes": [
             "高峰=北京时间工作日 9:00–12:00、14:00–18:00",
-            "缓存存储免费（官方）"
+            "缓存存储免费（官方）",
+            "官方页标注 v4-pro 计划退役：2026-09-14 12:00（北京时间）后请求转由 V4.1 Flash 承接并按 Flash 价计费"
           ]
         },
         {
@@ -177,23 +215,23 @@
             "type": "tiers",
             "rule": "beijing_workday_peak",
             "peak": {
-              "input_per_m": 3.0,
-              "cache_hit_per_m": 0.1,
-              "output_per_m": 9.0
+              "input_per_m": 2.0,
+              "cache_hit_per_m": 0.04,
+              "output_per_m": 8.0
             },
             "offpeak": {
-              "input_per_m": 1.5,
-              "cache_hit_per_m": 0.05,
-              "output_per_m": 4.5
+              "input_per_m": 1.0,
+              "cache_hit_per_m": 0.02,
+              "output_per_m": 4.0
             },
             "cache_storage_per_m": null
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-11",
           "promo": null,
           "notes": [
-            "与 v4-flash 同价（官方定价页）",
+            "旧 id 已退役：官方页说明仍可调用，但请求由 DeepSeek-V4.1-Flash 承接并按 Flash 价格计费（2026-09-11 核对）",
             "图片按尺寸折算 token 一并计费",
             "缓存存储免费"
           ]
@@ -508,6 +546,49 @@
       ],
       "models": [
         {
+          "model": "gpt-6-astra",
+          "currency": "USD",
+          "pricing": {
+            "type": "flat",
+            "input_per_m": 10.0,
+            "cache_hit_per_m": 1.0,
+            "cache_write_per_m": 12.5,
+            "cache_storage_per_m": null,
+            "output_per_m": 50.0
+          },
+          "reasoning_policy": "included_in_output",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-11",
+          "promo": null,
+          "notes": [
+            "标准档价格（官方页 Standard 表格，2026-09-11 核对）",
+            "cached input 为包含式口径（input 已含命中部分）"
+          ]
+        },
+        {
+          "model": "gpt-5.5",
+          "aliases": [
+            "gpt-5.5 (<272K context length)"
+          ],
+          "currency": "USD",
+          "pricing": {
+            "type": "flat",
+            "input_per_m": 5.0,
+            "cache_hit_per_m": 0.5,
+            "cache_write_per_m": null,
+            "cache_storage_per_m": null,
+            "output_per_m": 30.0
+          },
+          "reasoning_policy": "included_in_output",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-11",
+          "promo": null,
+          "notes": [
+            "官方页按 <272K context length 档给出的标准价；更长上下文档以官方页为准",
+            "cached input 为包含式口径（input 已含命中部分）"
+          ]
+        },
+        {
           "model": "gpt-5.6-luna",
           "currency": "USD",
           "pricing": {
@@ -618,6 +699,9 @@
         },
         {
           "model": "grok-4.5",
+          "aliases": [
+            "1596586a-c3f6-4b75-9638-a470d0041946/grok-4.5"
+          ],
           "currency": "USD",
           "pricing": {
             "type": "flat",
@@ -645,6 +729,25 @@
         "kimi"
       ],
       "models": [
+        {
+          "model": "kimi-k3",
+          "currency": "USD",
+          "pricing": {
+            "type": "flat",
+            "input_per_m": 3.0,
+            "cache_hit_per_m": 0.3,
+            "cache_write_per_m": null,
+            "cache_storage_per_m": null,
+            "output_per_m": 15.0
+          },
+          "reasoning_policy": "included_in_output",
+          "source_url": "https://platform.kimi.ai/docs/pricing/chat",
+          "updated_at": "2026-09-11",
+          "promo": null,
+          "notes": [
+            "输入价按 cache miss 口径，命中部分按缓存价计（官方页 ¥20 / ¥2 / ¥100，按官方美元页 $3 / $0.30 / $15 录入）"
+          ]
+        },
         {
           "model": "kimi-k2.7-code",
           "currency": "USD",
@@ -681,6 +784,81 @@
           "promo": null,
           "notes": [
             "高速版（约 180 tok/s），与 kimi-k2.7-code 同源双倍价（官方页）"
+          ]
+        }
+      ]
+    },
+    {
+      "provider": "google",
+      "display_name": "Google Gemini",
+      "provider_match": [
+        "google",
+        "gemini",
+        "generativelanguage"
+      ],
+      "models": [
+        {
+          "model": "gemini-3.8-flash",
+          "currency": "USD",
+          "pricing": {
+            "type": "flat",
+            "input_per_m": 0.75,
+            "cache_hit_per_m": 0.075,
+            "cache_write_per_m": null,
+            "cache_storage_per_m": 0.5,
+            "output_per_m": 3.75
+          },
+          "reasoning_policy": "included_in_output",
+          "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+          "updated_at": "2026-09-11",
+          "promo": {
+            "active_until": "2027-01-01T00:00:00Z",
+            "note": "官方页现价标注为「through December 31, 2026」，2027-01-01 起恢复 list 价，到期自动切换",
+            "list": {
+              "input_per_m": 1.5,
+              "cache_hit_per_m": 0.15,
+              "output_per_m": 7.5
+            }
+          },
+          "notes": [
+            "标准（Standard）付费档；Batch/Flex 为其半价、Priority 为 1.8 倍（官方页），本表按标准档估算",
+            "输出价含 thinking tokens（官方页口径）",
+            "上下文缓存按存储计费 $0.50 / 百万 token / 小时（2027 年起 $1.00），本表仅在明细分行展示、不计入按 M 估价"
+          ]
+        }
+      ]
+    },
+    {
+      "provider": "minimax",
+      "display_name": "MiniMax",
+      "provider_match": [
+        "minimax",
+        "minimaxi",
+        "minimaxai"
+      ],
+      "models": [
+        {
+          "model": "minimax-m3",
+          "aliases": [
+            "minimaxai/minimax-m3",
+            "MiniMax-M3"
+          ],
+          "currency": "CNY",
+          "pricing": {
+            "type": "flat",
+            "input_per_m": 2.1,
+            "cache_hit_per_m": 0.42,
+            "cache_write_per_m": null,
+            "cache_storage_per_m": null,
+            "output_per_m": 8.4
+          },
+          "reasoning_policy": "included_in_output",
+          "source_url": "https://platform.minimaxi.com/docs/guides/pricing-paygo",
+          "updated_at": "2026-09-11",
+          "promo": null,
+          "notes": [
+            "≤512k 输入 tokens 档；官方页标注永久五折，本表按折后价录入（原价 输入 4.20 / 输出 16.80 / 缓存读取 0.84）",
+            ">512k 输入 tokens 档为 输入 8.40 / 输出 33.60 / 缓存读取 1.68（已折后），本表按标准档估算"
           ]
         }
       ]

@@ -1465,7 +1465,7 @@ mod tests {
     #[test]
     fn builtin_json_parses() {
         let t = builtin();
-        assert_eq!(t.entries.len(), 7);
+        assert_eq!(t.entries.len(), 9);
         let models: Vec<&str> = t.entries.iter().flat_map(|p| p.models.iter().map(|m| m.model.as_str())).collect();
         assert!(models.contains(&"glm-5.3-flash"));
         assert!(models.contains(&"deepseek-v4-flash"));
@@ -1474,6 +1474,17 @@ mod tests {
         assert!(models.contains(&"gpt-5.6-cyber"));
         assert!(models.contains(&"claude-fable-5.1"));
         assert!(models.contains(&"kimi-k2.7-code-highspeed"));
+        // 2026-09-11 官方页核对后补齐（此前价格未知/口径过期）。
+        assert!(models.contains(&"deepseek-flash"));
+        assert!(models.contains(&"kimi-k3"));
+        assert!(models.contains(&"gemini-3.8-flash"));
+        assert!(models.contains(&"gpt-6-astra"));
+        assert!(models.contains(&"gpt-5.5"));
+        assert!(models.contains(&"minimax-m3"));
+        // 带供应商前缀的同一型号按别名匹配（本地日志里的原始写法）。
+        assert!(find_entry(&t, "z-ai/glm-5.2").is_some());
+        assert!(find_entry(&t, "minimaxai/minimax-m3").is_some());
+        assert!(find_entry(&t, "1596586a-c3f6-4b75-9638-a470d0041946/grok-4.5").is_some());
     }
 
     /// 反编造守卫：表内每个条目都必须能对应一条官方来源 URL。
@@ -1605,13 +1616,13 @@ mod tests {
         let inp = d1.lines.iter().find(|l| l.key == "input").unwrap();
         assert_eq!(inp.currency, "USD");
         assert!((inp.cost_cny - 1.4 * 6.7203).abs() < 1e-9);
-        // CNY: deepseek peak input 3.0/M stays 3.0 CNY (no FX).
+        // CNY: deepseek peak input 2.0/M stays 2.0 CNY (no FX).
         let ds = rec(WED_10, "deepseek-v4-flash", 1_000_000, 0, None, None);
         let d2 = compute_cost_detail("deepseek-v4-flash", &[ds], &t, &HashMap::new(), &fx(), WED_10);
         let inp2 = d2.lines.iter().find(|l| l.key == "input").unwrap();
         assert_eq!(inp2.currency, "CNY");
         assert_eq!(inp2.tier, Some(BeijingTier::Peak));
-        assert!((inp2.cost_cny - 3.0).abs() < 1e-9);
+        assert!((inp2.cost_cny - 2.0).abs() < 1e-9);
     }
 
     #[test]
@@ -1661,7 +1672,7 @@ mod tests {
         let t = builtin();
         // glm-5.3 (USD): 1M input × 1.4 × 6.7203.
         let a = rec(NOW, "glm-5.3", 1_000_000, 0, None, None);
-        // deepseek off-peak (Saturday): 2M output × 4.5 (CNY, no FX).
+        // deepseek off-peak (Saturday): 2M output × 4.0 (CNY, no FX).
         let b = rec(SAT_10, "deepseek-v4-flash", 0, 2_000_000, None, None);
         // Unknown model: not priced, never guessed.
         let c = rec(NOW, "gpt-unknown", 10, 10, None, None);
@@ -1669,7 +1680,7 @@ mod tests {
         assert!(!dto.fully_priced);
         assert_eq!(dto.unknown_models, vec!["gpt-unknown".to_string()]);
         let expect_a = 1_000_000.0 / 1e6 * 1.4 * 6.7203;
-        let expect_b = 2_000_000.0 / 1e6 * 4.5;
+        let expect_b = 2_000_000.0 / 1e6 * 4.0;
         assert!((dto.total_cost_cny - (expect_a + expect_b)).abs() < 1e-9);
         let glm = dto.models.iter().find(|m| m.name == "glm-5.3").unwrap();
         assert!(glm.priced);

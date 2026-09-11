@@ -5,14 +5,14 @@ import { AnimatedNumber } from "../components/AnimatedNumber";
 import { LiquidSegmentedControl } from "../components/LiquidSegmentedControl";
 import { LocalSourceSection } from "../components/LocalSourceSection";
 import { CostDetailModal } from "../components/CostDetailModal";
-import { MetricCard, InfoDot } from "../components/MetricCard";
+import { MetricCard, InfoDot, SpeedTrendLine } from "../components/MetricCard";
 import { QuotaSection } from "../components/QuotaSection";
 import { TrendChart } from "../components/TrendChart";
 import { FxButton, useAction } from "../components/fx";
 import { api } from "../lib/ipc";
 import { listItemVariants, rowGestures, softSpring, staggerContainer } from "../lib/motion";
 import { store, useStore } from "../lib/store";
-import type { ModelCost, ModelRow, SpeedStats } from "../lib/types";
+import type { ModelCost, ModelRow, SpeedStats, SpeedWindowStats } from "../lib/types";
 import { cacheHitRate, totalTokens } from "../lib/types";
 import { RANGE_KEYS, RANGE_LABELS } from "../lib/types";
 import {
@@ -353,7 +353,7 @@ const ZCodeSection = memo(function ZCodeSection({ compact }: { compact: boolean 
           label="请求次数"
           value={<AnimatedNumber value={agg.requests} format={formatFull} />}
         />
-        <SpeedCard speed={dash.speed} />
+        <SpeedCard speed={dash.speed} windows={dash.speedWindows} />
         <MetricCard
           glass
           layoutEnabled={false}
@@ -509,8 +509,15 @@ const ZCodeSection = memo(function ZCodeSection({ compact }: { compact: boolean 
   );
 });
 
-/** 响应速度卡:首字延迟均值 + 加权 tps;无样本时按惯例显示 unavailable。 */
-function SpeedCard({ speed }: { speed: SpeedStats | undefined }) {
+/** 响应速度卡:首字延迟均值 + 加权 tps;无样本时按惯例显示 unavailable。
+ * 第二行给出近 24h / 近 7 天固定窗口的 tps 对比(样本不足自动隐藏)。 */
+function SpeedCard({
+  speed,
+  windows,
+}: {
+  speed: SpeedStats | undefined;
+  windows: SpeedWindowStats[] | undefined;
+}) {
   const hasSamples = !!speed && speed.ttftSamples > 0;
   const hasSpeed = !!speed && (speed.speedSamples > 0 || speed.speedTps !== null);
   const available = hasSamples || hasSpeed;
@@ -532,9 +539,14 @@ function SpeedCard({ speed }: { speed: SpeedStats | undefined }) {
       }
       unavailable={!available}
       sub={
-        available
-          ? `首 token P95 ${formatLatency(speed!.ttftP95Ms)} · 样本 ${speed!.ttftSamples}/${speed!.completedRequests} 条请求`
-          : undefined
+        available ? (
+          <>
+            <div>
+              {`首 token P95 ${formatLatency(speed!.ttftP95Ms)} · 样本 ${speed!.ttftSamples}/${speed!.completedRequests} 条请求`}
+            </div>
+            <SpeedTrendLine windows={windows} />
+          </>
+        ) : undefined
       }
       hint={SPEED_HINT}
     />

@@ -14,7 +14,7 @@ ZCode Usage Panel 是一个常驻 Windows 桌面的用量驾驶舱：把 ZCode�
 
 | 数据源 | 说明 |
 |---|---|
-| **ZCode** | 总 Token、API 等价花费、Input / Output / Reasoning / Cache、请求次数、**响应速度（首字延迟 TTFT + tps，P95 与样本覆盖如实标注）**、Cache 命中率、活跃模型 |
+| **ZCode** | 总 Token、API 等价花费、Input / Output / Reasoning / Cache、请求次数、**响应速度（首字延迟 TTFT + tps，P95 与样本覆盖如实标注；另附近 24 小时 / 近 7 天固定窗口的 tps 对比行）**、Cache 命中率、活跃模型 |
 | **Codex / DSH / Claude Code** | 各自客户端本地 session 日志的完整统计，**信息密度与 ZCode 分区对齐**——总量、缓存、请求、按模型排行、时间趋势、按官方单价估算的费用，一个不少 |
 
 今天 / 60 分钟 / 24 小时 / 7 天 / 30 天 / 全局时间范围一键切换；字段堆叠趋势图 + 按模型折线，模型可单独显隐。
@@ -39,7 +39,7 @@ ZCode Usage Panel 是一个常驻 Windows 桌面的用量驾驶舱：把 ZCode�
 
 ### 💰 花费估算
 
-内置智谱 / DeepSeek / Anthropic / OpenAI / xAI / Moonshot / 字节等 20+ 模型官方单价（编译进二进制，来源与日期可查），支持模型级覆盖、远程价格表、促销价到期自动回落；DeepSeek 按北京时间峰谷分时计价；USD→CNY 每日自动刷新。所有金额都明确标注「按官方 API 单价估算 · 非实际 Billing」。
+内置智谱 / DeepSeek / Anthropic / OpenAI / xAI / Moonshot / Google / MiniMax / 字节等 30+ 模型官方单价（编译进二进制，来源与日期可查），支持模型级覆盖、远程价格表、促销价到期自动回落；DeepSeek 按北京时间峰谷分时计价；USD→CNY 每日自动刷新。所有金额都明确标注「按官方 API 单价估算 · 非实际 Billing」。
 
 ### 🖥 桌面体验
 

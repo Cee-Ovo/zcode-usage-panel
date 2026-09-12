@@ -112,6 +112,8 @@ export function truncateHead(s: string, max: number): string {
 /** CNY cost: ¥ + thousand separators + 2 decimals; 0 → ¥0.00; tiny (>0, <0.01) → <¥0.01. */
 export function formatCny(n: number): string {
   if (!isFinite(n)) return "¥0.00";
+  // `-0` (JSON round-trip of a Rust f64 `-0.0`) must not render as "¥-0.00".
+  if (n === 0) return "¥0.00";
   if (n > 0 && n < 0.01) return "<¥0.01";
   return `¥${n.toLocaleString("en-US", {
     minimumFractionDigits: 2,

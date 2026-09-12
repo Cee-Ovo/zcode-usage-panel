@@ -951,7 +951,10 @@ pub fn compute_cost_summary(
     unknown_models.sort();
     unknown_models.dedup();
 
-    let total_cost_cny: f64 = models.iter().map(|m| m.cost_cny).sum();
+    // `Sum for f64` folds from `-0.0`, so an empty range would otherwise
+    // serialize as `-0.0` and render as "¥-0.00" in the UI. Adding a plain
+    // zero normalizes the sign without touching any real total.
+    let total_cost_cny: f64 = models.iter().map(|m| m.cost_cny).sum::<f64>() + 0.0;
     CostSummaryDto {
         range: range_key.to_string(),
         total_tokens: agg.total_tokens(),
@@ -1947,5 +1950,15 @@ mod tests {
         assert_eq!(entry.input_per_m, Some(3.0));
         assert_eq!(entry.output_per_m, Some(6.0));
         assert_eq!(entry.notes, vec!["手动价".to_string()]);
+    }
+
+
+    /// 空记录集的花费汇总不得出现负零:UI 会把 -0 渲染成「¥-0.00」。
+    #[test]
+    fn empty_cost_summary_is_not_negative_zero() {
+        let t = builtin();
+        let dto = compute_cost_summary("today", &[], &t, &HashMap::new(), &fx(), now_iso_ms());
+        assert!(!dto.total_cost_cny.is_sign_negative(), "total={:?}", dto.total_cost_cny);
+        assert_eq!(dto.total_cost_cny, 0.0);
     }
 }

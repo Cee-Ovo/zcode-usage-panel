@@ -280,7 +280,9 @@ const ZCodeSection = memo(function ZCodeSection({ compact }: { compact: boolean 
           className="metric-card--cost"
           label="API 等价花费"
           value={
-            costSummary ? (
+            // 缓存快照阶段:Token 卡显示的是持久化快照,花费却按尚未加载的
+            // 记录集算(0),两者不一致 —— 此时如实显示「—」而不是 ¥0.00。
+            costSummary && !dash?.restored ? (
               <span>≈ {formatCny(costSummary.totalCostCny)}</span>
             ) : (
               "—"
@@ -288,8 +290,10 @@ const ZCodeSection = memo(function ZCodeSection({ compact }: { compact: boolean 
           }
           sub={
             <span>
-              按官方 API 单价估算 · 非实际 Billing
-              {unknownCount > 0 ? ` · ${unknownCount} 个模型价格未知` : ""}
+              {dash?.restored
+                ? "缓存快照同步中 · 完成后按官方单价估算"
+                : "按官方 API 单价估算 · 非实际 Billing"}
+              {!dash?.restored && unknownCount > 0 ? ` · ${unknownCount} 个模型价格未知` : ""}
             </span>
           }
         />

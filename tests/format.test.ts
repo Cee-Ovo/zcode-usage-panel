@@ -89,6 +89,12 @@ describe("formatCny", () => {
     expect(formatCny(12.345)).toBe("¥12.35");
     expect(formatCny(1234.5)).toBe("¥1,234.50");
   });
+
+  it("never renders negative zero", () => {
+    // JSON round-trip of a Rust f64 -0.0 arrives as JS -0.
+    expect(formatCny(JSON.parse("-0.0"))).toBe("¥0.00");
+    expect(formatCny(-0)).toBe("¥0.00");
+  });
 });
 
 describe("formatPerM", () => {

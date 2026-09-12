@@ -38,6 +38,9 @@ pub fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+/// Persisted boot snapshot file name inside the app cache dir.
+const SNAPSHOT_FILE: &str = "boot-snapshot.json";
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct BootSnapshot {
@@ -131,6 +134,10 @@ pub struct Engine {
     pub snapshot_dirty: Arc<AtomicBool>,
     /// Auto-suspend flag: true while the UI is hidden to tray.
     auto_paused: Arc<AtomicBool>,
+    /// Set when the configured data root changed: the next refresh wipes the
+    /// store and every per-file watermark before re-reading the new root, so
+    /// records from two roots can never be mixed or double-counted.
+    pending_root_reset: Arc<AtomicBool>,
 }
 
 impl Engine {
@@ -159,6 +166,7 @@ impl Engine {
             pricing: Arc::new(OnceLock::new()),
             snapshot_dirty: Arc::new(AtomicBool::new(true)),
             auto_paused: Arc::new(AtomicBool::new(false)),
+            pending_root_reset: Arc::new(AtomicBool::new(false)),
         };
         (engine, rx)
     }
@@ -176,6 +184,47 @@ impl Engine {
     /// Force a refresh soon (used by settings changes / manual refresh).
     pub fn kick(&self) {
         let _ = self.tx.send(());
+    }
+
+    /// The configured data root changed: drop everything read from the old
+    /// root and rebuild from the new one on the next refresh.
+    ///
+    /// Without this the old root's records would stay in the store forever and
+    /// mix with the new root's numbers — and switching back would re-read the
+    /// old files from offset 0 and double-count them.
+    pub fn reset_data_root(&self) {
+        self.pending_root_reset.store(true, Ordering::Relaxed);
+        self.kick();
+    }
+
+    /// Wipe the store, every per-file watermark, the boot snapshot and the
+    /// cached layout so the next discovery starts from a clean slate. Caller
+    /// must hold the `inner` lock.
+    fn apply_root_reset(&self, inner: &mut EngineInner) {
+        inner.store.reset();
+        inner.jsonl.clear();
+        inner.sqlite.clear();
+        inner.layout = None;
+        inner.boot = None;
+        // Force the very next discovery instead of waiting out the 5 s gate.
+        inner.last_discover = None;
+        inner.busy_until_ms = None;
+        inner.last_error = None;
+        inner.error_streak = 0;
+        // The persisted snapshot describes the old root; leaving it in place
+        // would make the UI show the previous root's numbers while the new
+        // root is still being scanned.
+        self.discard_snapshot();
+    }
+
+    /// Delete the persisted boot snapshot (best effort).
+    fn discard_snapshot(&self) {
+        if let Some(app) = self.app.get() {
+            use tauri::Manager;
+            if let Ok(dir) = app.path().app_cache_dir() {
+                let _ = std::fs::remove_file(dir.join(SNAPSHOT_FILE));
+            }
+        }
     }
 
     /// Auto-suspend flag driven by UI visibility. Returns true if the flag
@@ -312,6 +361,14 @@ impl Engine {
                 return;
             }
 
+            // The configured data root changed: drop the old root's records and
+            // watermarks before anything below can append the new root's data
+            // on top of them.
+            if self.pending_root_reset.swap(false, Ordering::Relaxed) {
+                self.apply_root_reset(&mut inner);
+                changed = true;
+            }
+
             // Rate-limited directory re-discovery (listing only — record reads
             // resume from per-file watermarks, never full rescans).
             let need_discover = inner
@@ -324,6 +381,15 @@ impl Engine {
                         Ok(l) => {
                             let jsonl_set: std::collections::HashSet<_> =
                                 l.jsonl_files.iter().cloned().collect();
+                            // Files that vanished since the last scan: their
+                            // already-ingested records must stop counting now,
+                            // not at the next restart.
+                            let gone: std::collections::HashSet<PathBuf> = inner
+                                .jsonl
+                                .keys()
+                                .filter(|p| !jsonl_set.contains(*p))
+                                .cloned()
+                                .collect();
                             inner.jsonl.retain(|p, _| jsonl_set.contains(p));
                             for p in &l.jsonl_files {
                                 inner
@@ -333,12 +399,23 @@ impl Engine {
                             }
                             let sqlite_set: std::collections::HashSet<_> =
                                 l.sqlite_files.iter().cloned().collect();
+                            let gone_sqlite: std::collections::HashSet<PathBuf> = inner
+                                .sqlite
+                                .keys()
+                                .filter(|p| !sqlite_set.contains(*p))
+                                .cloned()
+                                .collect();
                             inner.sqlite.retain(|p, _| sqlite_set.contains(p));
                             for p in &l.sqlite_files {
                                 inner
                                     .sqlite
                                     .entry(p.clone())
                                     .or_insert_with(|| SqliteSourceState::new(p.clone()));
+                            }
+                            let gone: std::collections::HashSet<PathBuf> =
+                                gone.union(&gone_sqlite).cloned().collect();
+                            if inner.store.drop_source_files(&gone) > 0 {
+                                changed = true;
                             }
                             inner.layout = Some(l);
                         }
@@ -519,7 +596,7 @@ impl Engine {
     pub fn load_snapshot(&self, app: &tauri::AppHandle) {
         use tauri::Manager;
         let Ok(dir) = app.path().app_cache_dir() else { return };
-        let path = dir.join("boot-snapshot.json");
+        let path = dir.join(SNAPSHOT_FILE);
         if let Ok(text) = std::fs::read_to_string(&path) {
             if let Ok(snap) = serde_json::from_str::<BootSnapshot>(&text) {
                 let mut inner = self.inner.lock().unwrap();
@@ -562,10 +639,10 @@ impl Engine {
             }
         };
         let _ = std::fs::create_dir_all(&dir);
-        let tmp = dir.join("boot-snapshot.json.tmp");
+        let tmp = dir.join(format!("{SNAPSHOT_FILE}.tmp"));
         if let Ok(json) = serde_json::to_string(&snapshot) {
             if std::fs::write(&tmp, json).is_ok() {
-                let _ = std::fs::rename(&tmp, dir.join("boot-snapshot.json"));
+                let _ = std::fs::rename(&tmp, dir.join(SNAPSHOT_FILE));
             }
         }
     }

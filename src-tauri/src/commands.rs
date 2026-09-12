@@ -746,7 +746,12 @@ pub fn set_settings(
         if autostart_changed {
             apply_autostart(&app, new_settings.autostart);
         }
-        if data_dir_changed || paused_changed {
+        if data_dir_changed {
+            // A different data root invalidates everything already ingested:
+            // rebuild from scratch instead of appending the new root's records
+            // onto the old root's numbers.
+            state.engine.reset_data_root();
+        } else if paused_changed {
             state.engine.kick();
         }
         if providers_changed {

@@ -12,6 +12,7 @@ import { FxButton, useAction } from "../components/fx";
 import { api } from "../lib/ipc";
 import { listItemVariants, rowGestures, softSpring, staggerContainer } from "../lib/motion";
 import { store, useStore } from "../lib/store";
+import { modelDetailGate } from "../lib/modelDetail";
 import type { ModelCost, ModelRow, SpeedStats, SpeedWindowStats } from "../lib/types";
 import { cacheHitRate, totalTokens } from "../lib/types";
 import { RANGE_KEYS, RANGE_LABELS } from "../lib/types";
@@ -87,6 +88,9 @@ export const DashboardPage = memo(function DashboardPage({ onRangeChange }: { on
   const [compact, setCompact] = useState(() => {
     try { return localStorage.getItem("zup.compact") === "true"; } catch { return false; }
   });
+  /** 当前本地源标签对应的 provider id(同时用作组件 key)。 */
+  const localProvider: "codex" | "dsh" | "claude-code" =
+    section === "codex" ? "codex" : section === "dsh" ? "dsh" : "claude-code";
 
   if (!hasDash) {
     return <div className="empty-state">正在加载 ZCode 用量数据…</div>;
@@ -142,7 +146,10 @@ export const DashboardPage = memo(function DashboardPage({ onRangeChange }: { on
           <ZCodeSection compact={compact} />
         ) : (
           <LocalSourceSection
-            provider={section === "codex" ? "codex" : section === "dsh" ? "dsh" : "claude-code"}
+            // 三个本地源共用同一组件:换源时必须重建实例,否则上一个源的
+            // 展开态 / 模型显隐 / 成本弹窗会串到新源上。
+            key={localProvider}
+            provider={localProvider}
             totalLabel={
               section === "codex"
                 ? "Codex 总 Token"
@@ -585,7 +592,8 @@ function ModelLine({
       }}
       onClick={() => {
         store.set({ page: "models" });
-        api.modelDetail(row.name).then((d) => store.set({ modelDetail: d })).catch(() => {});
+        // 序号保护:过期响应不会覆盖新选的模型,也不会重开已关闭的弹窗。
+        modelDetailGate.open(() => api.modelDetail(row.name));
       }}
       title="点击查看模型详情"
     >

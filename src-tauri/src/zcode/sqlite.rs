@@ -63,6 +63,11 @@ const ALIAS_TOTAL: &[&str] = &["computed_total_tokens", "computedtotaltokens"];
 const ALIAS_MODEL: &[&str] = &["model", "model_name", "modelname", "model_id", "modelid"];
 const ALIAS_SESSION: &[&str] = &["session_id", "sessionid", "session", "conversation_id"];
 const ALIAS_PROJECT: &[&str] = &["project", "project_path", "projectpath", "cwd", "workspace"];
+/// Row primary key, used only for de-duplication (never for ordering).
+///
+/// Deliberately excludes ZCode's `logical_request_id`: that one is shared by
+/// every attempt of the same logical request, so it is not unique per row.
+const ALIAS_ID: &[&str] = &["id", "request_id", "requestid", "uuid", "row_id", "rowid_key"];
 
 fn norm(s: &str) -> String {
     s.trim().to_ascii_lowercase()
@@ -90,8 +95,10 @@ pub struct ColumnMap {
     pub ttft: Option<String>,
     /// Terminal request status (optional).
     pub status: Option<String>,
-    /// Source-computed total per row (optional; ZCode caliber).
+/// Source-computed total per row (optional; ZCode caliber).
     pub total: Option<String>,
+    /// Row primary key (optional; used for de-duplication only).
+    pub id: Option<String>,
     /// rowid-style column used as the incremental watermark.
     pub watermark: Option<String>,
 }
@@ -124,6 +131,14 @@ pub struct SqliteSourceState {
     pub records_read: u64,
     pub last_error: Option<String>,
     seen_row_ids: std::collections::HashSet<u64>,
+    /// Primary keys already ingested, so the overlap re-read (see `read_new`)
+    /// can be replayed without double counting. Empty when the table exposes
+    /// no primary-key column — the overlap read is then skipped entirely.
+    seen_ids: std::collections::HashSet<String>,
+    /// Cleared when `seen_ids` overflowed: the overlap window can no longer
+    /// distinguish seen rows from new ones, so it is disabled for the rest of
+    /// the process (plain rowid cursor, same as before this fix).
+    overlap_ok: bool,
 }
 
 impl SqliteSourceState {
@@ -135,9 +150,21 @@ impl SqliteSourceState {
             records_read: 0,
             last_error: None,
             seen_row_ids: Default::default(),
+            seen_ids: Default::default(),
+            overlap_ok: true,
         }
     }
 }
+
+/// How many already-seen rows are re-read on each refresh.
+///
+/// `rowid` is the incremental cursor, but it is an insertion-order artifact:
+/// SQLite reuses the rowids of deleted rows and `VACUUM` renumbers the table.
+/// A row inserted with a rowid at or below the cursor would then never match
+/// `rowid > cursor` and would be silently lost. Re-reading a bounded tail and
+/// dropping the rows whose primary key we already hold closes that hole
+/// without giving up the index-friendly `rowid` cursor.
+const OVERLAP_ROWS: i64 = 512;
 
 pub(crate) fn open_readonly(path: &Path) -> Result<Connection, SourceError> {
     let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX | OpenFlags::SQLITE_OPEN_URI;
@@ -236,6 +263,7 @@ fn map_table(conn: &Connection, table: &str) -> Option<MappedTable> {
         if map.ttft.is_none() && first_alias_match(col, ALIAS_TTFT) { map.ttft = Some(col.clone()); }
         if map.status.is_none() && first_alias_match(col, ALIAS_STATUS) { map.status = Some(col.clone()); }
         if map.total.is_none() && first_alias_match(col, ALIAS_TOTAL) { map.total = Some(col.clone()); }
+        if map.id.is_none() && first_alias_match(col, ALIAS_ID) { map.id = Some(col.clone()); }
     }
     if map.token_column_count() == 0 {
         return None;
@@ -327,9 +355,9 @@ pub fn read_new(state: &mut SqliteSourceState) -> Result<Vec<UsageRecord>, Sourc
     }
     // Selection order MUST match the `raws` indexing below:
     // [time, model, session, project, input, output, reasoning, cache_read,
-    //  cache_write, duration, ttft, status, total]
+    //  cache_write, duration, ttft, status, total, id]
     // Every slot occupies a fixed result column — absent mapped columns are
-    // selected as NULL so the fixed 13-slot `raws` layout stays aligned.
+    // selected as NULL so the fixed 14-slot `raws` layout stays aligned.
     for col in [
         &table.map.time,
         &table.map.model,
@@ -344,12 +372,23 @@ pub fn read_new(state: &mut SqliteSourceState) -> Result<Vec<UsageRecord>, Sourc
         &table.map.ttft,
         &table.map.status,
         &table.map.total,
+        &table.map.id,
     ] {
         match col {
             Some(c) => select_cols.push(format!("\"{c}\"")),
             None => select_cols.push("NULL".to_string()),
         }
     }
+
+    // The overlap re-read needs a primary key to tell "already ingested" from
+    // "genuinely new", so it is only enabled when the table has one (and the
+    // dedup set has not overflowed).
+    let overlap = table.map.id.is_some() && state.overlap_ok;
+    let from_rowid = if overlap {
+        (state.watermark - OVERLAP_ROWS).max(0)
+    } else {
+        state.watermark
+    };
 
     let sql = if table.full_scan {
         format!(
@@ -389,12 +428,13 @@ pub fn read_new(state: &mut SqliteSourceState) -> Result<Vec<UsageRecord>, Sourc
     let params: Vec<&dyn rusqlite::ToSql> = if table.full_scan {
         vec![]
     } else {
-        vec![&state.watermark]
+        vec![&from_rowid]
     };
 
     let mut records = Vec::new();
     let mut max_wm = state.watermark;
     let mut new_seen: Vec<u64> = Vec::new();
+    let mut new_ids: Vec<String> = Vec::new();
     let mut rows = match stmt.query(params.as_slice()) {
         Ok(r) => r,
         Err(rusqlite::Error::SqliteFailure(e, _))
@@ -417,8 +457,8 @@ pub fn read_new(state: &mut SqliteSourceState) -> Result<Vec<UsageRecord>, Sourc
                     vref_to_i64(v).unwrap_or(0)
                 };
                 // Read the mapped cells (order fixed by `select_cols` above).
-                let mut raws: Vec<Option<String>> = Vec::with_capacity(13);
-                for _ in 0..13 {
+                let mut raws: Vec<Option<String>> = Vec::with_capacity(14);
+                for _ in 0..14 {
                     let v = row.get_ref(idx).ok();
                     idx += 1;
                     raws.push(v.and_then(vref_to_string));
@@ -428,6 +468,17 @@ pub fn read_new(state: &mut SqliteSourceState) -> Result<Vec<UsageRecord>, Sourc
                     continue;
                 }
                 new_seen.push(identity);
+
+                // Primary-key de-dup: the query window is widened by
+                // OVERLAP_ROWS when the table has a key, so rows read before
+                // are re-seen here and must not be counted twice.
+                let row_id = raws[13].clone().filter(|s| !s.is_empty());
+                if let Some(id) = &row_id {
+                    if state.seen_ids.contains(id) {
+                        continue;
+                    }
+                    new_ids.push(id.clone());
+                }
 
                 let ts = raws[0].as_deref().and_then(|s| ts_from_cell(&s));
                 let (Some(ts_ms), Some(model)) = (ts, raws[1].clone()) else {
@@ -482,6 +533,17 @@ pub fn read_new(state: &mut SqliteSourceState) -> Result<Vec<UsageRecord>, Sourc
         if state.seen_row_ids.len() > 500_000 {
             state.seen_row_ids.clear(); // worst case: brief double count until next rebuild
             state.last_error = Some("full-scan dedup set overflow; cache reset".into());
+        }
+    }
+    if !new_ids.is_empty() {
+        state.seen_ids.extend(new_ids);
+        // Same bound as the full-scan set. Once it overflows the overlap
+        // window can no longer tell "seen" from "new", so it is switched off
+        // (back to the plain rowid cursor) rather than risk double counting.
+        if state.seen_ids.len() > 500_000 {
+            state.seen_ids.clear();
+            state.overlap_ok = false;
+            state.last_error = Some("primary-key dedup set overflow; overlap read disabled".into());
         }
     }
     state.records_read += records.len() as u64;
@@ -548,6 +610,103 @@ mod tests {
 
         // No changes → empty.
         assert!(read_new(&mut st).unwrap().is_empty());
+    }
+
+    /// ZCode 的 `model_usage` 形态:文本主键 + 数值时间列。
+    fn fixture_with_id(path: &Path) {
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE model_usage (
+                id TEXT PRIMARY KEY,
+                started_at INTEGER,
+                model_id TEXT,
+                session_id TEXT,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                reasoning_tokens INTEGER,
+                cache_read_input_tokens INTEGER,
+                computed_total_tokens INTEGER
+            );",
+        )
+        .unwrap();
+    }
+
+    fn insert_id(path: &Path, id: &str, ts: i64, model: &str, input: u64, output: u64) {
+        let conn = Connection::open(path).unwrap();
+        conn.execute(
+            "INSERT INTO model_usage (id, started_at, model_id, session_id, input_tokens,
+                 output_tokens, reasoning_tokens, cache_read_input_tokens, computed_total_tokens)
+             VALUES (?1, ?2, ?3, 's1', ?4, ?5, 0, 0, ?6)",
+            rusqlite::params![id, ts, model, input, output, input + output],
+        )
+        .unwrap();
+    }
+
+    /// rowid 是插入序且会被 SQLite 复用:删掉最大 rowid 的行再插入时,新行
+    /// 会拿到同一个 rowid,只靠 `rowid > 水位` 会永久漏读。重叠窗口 +
+    /// 主键去重必须兜住,且不能把已读过的行重复计入。
+    #[test]
+    fn reused_rowid_is_not_lost_and_not_double_counted() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("usage.db");
+        fixture_with_id(&db);
+        insert_id(&db, "a", 1756300800, "GLM-5.3", 10, 20);
+        insert_id(&db, "b", 1756300900, "GLM-5.3", 30, 40);
+
+        let mut st = SqliteSourceState::new(db.clone());
+        assert_eq!(read_new(&mut st).unwrap().len(), 2);
+        let wm_before = st.watermark;
+
+        // 删掉最大 rowid 的行,再插一行 → SQLite 复用该 rowid。
+        {
+            let conn = Connection::open(&db).unwrap();
+            conn.execute("DELETE FROM model_usage WHERE id = 'b'", []).unwrap();
+            conn.execute(
+                "INSERT INTO model_usage (id, started_at, model_id, session_id, input_tokens,
+                     output_tokens, reasoning_tokens, cache_read_input_tokens, computed_total_tokens)
+                 VALUES ('c', 1756301000, 'GLM-5.3-Flash', 's1', 50, 60, 0, 0, 110)",
+                [],
+            )
+            .unwrap();
+            let max: i64 = conn
+                .query_row("SELECT max(rowid) FROM model_usage", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(max, wm_before, "前提:新行复用了被删行的 rowid");
+        }
+
+        let recs = read_new(&mut st).unwrap();
+        assert_eq!(recs.len(), 1, "复用 rowid 的新行必须被读到");
+        assert_eq!(recs[0].model, "GLM-5.3-Flash");
+        assert_eq!(recs[0].input_tokens, 50);
+
+        // 已读过的行不能因为重叠窗口被重复计入。
+        assert!(read_new(&mut st).unwrap().is_empty());
+    }
+
+    /// 没有主键列的表退回纯 rowid 水位(不启用重叠窗口),行为与修复前一致。
+    #[test]
+    fn table_without_id_column_keeps_rowid_only_cursor() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("usage.db");
+        fixture_db(&db);
+        insert(&db, 1756300800, "m", 1, 1, 0);
+        let mut st = SqliteSourceState::new(db.clone());
+        assert_eq!(read_new(&mut st).unwrap().len(), 1);
+
+        // 删掉该行再插一行:rowid 被复用,但无主键可去重 → 只能靠水位,
+        // 结果如实为"读不到"(这正是有主键才启用重叠窗口的原因)。
+        {
+            let conn = Connection::open(&db).unwrap();
+            conn.execute("DELETE FROM usage_events", []).unwrap();
+            conn.execute(
+                "INSERT INTO usage_events (request_timestamp, model_name, session_id, prompt_tokens, completion_tokens, cached_tokens)
+                 VALUES (1756301000, 'm2', 's1', 5, 5, 0)",
+                [],
+            )
+            .unwrap();
+        }
+        assert!(read_new(&mut st).unwrap().is_empty());
+        assert!(!st.overlap_ok || st.seen_ids.is_empty());
     }
 
     #[test]

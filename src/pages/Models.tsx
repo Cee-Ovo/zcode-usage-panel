@@ -5,7 +5,8 @@ import { AnimatedNumber } from "../components/AnimatedNumber";
 import { MetricCard } from "../components/MetricCard";
 import { TrendChart } from "../components/TrendChart";
 import { api, onEvent } from "../lib/ipc";
-import { store, useStore } from "../lib/store";
+import { useStore } from "../lib/store";
+import { modelDetailGate } from "../lib/modelDetail";
 import type { ModelCost, ModelDetailDto, UsageViewDto } from "../lib/types";
 import { cacheHitRate, totalTokens } from "../lib/types";
 import { displayModelName, displayModelParts } from "../lib/modelDisplay";
@@ -30,6 +31,8 @@ export function ModelsPage() {
     Partial<Record<LocalModelProvider, UsageViewDto | null>>
   >({});
   const [refreshTick, setRefreshTick] = useState(0);
+  /** 详情加载失败时给出可见反馈(不再静默吞掉)。 */
+  const [detailError, setDetailError] = useState(false);
 
   const enabled = useMemo(() => enabledModelProviders(providers), [providers]);
   const enabledKey = enabled.join(",");
@@ -99,6 +102,11 @@ export function ModelsPage() {
       </header>
       <Glass className="panel sample-glass page-surface models-surface" material="regular" renderer="css" interactive={false}>
         <div className="panel-title">全部模型(四源合并 · 当前时间范围)</div>
+        {detailError && (
+          <div className="empty-state" role="alert">
+            模型详情加载失败,请稍后重试。
+          </div>
+        )}
         {rows.length === 0 && <div className="empty-state">该范围内没有模型调用</div>}
         <AnimatePresence initial={false}>
           {rows.map(({ source, row }, i) => {
@@ -122,12 +130,13 @@ export function ModelsPage() {
               exit="exit"
               {...rowGestures}
               transition={softSpring}
-              onClick={() =>
-                api
-                  .modelDetail(row.name, source)
-                  .then((d) => store.set({ modelDetail: d }))
-                  .catch(() => {})
-              }
+              onClick={() => {
+                setDetailError(false);
+                modelDetailGate.open(
+                  () => api.modelDetail(row.name, source),
+                  () => setDetailError(true),
+                );
+              }}
               title="点击查看模型详情"
             >
               <div>
@@ -181,13 +190,13 @@ function ModelDetailCard({ detail }: { detail: ModelDetailDto }) {
   return (
     <AccessibleDialog
       label={`模型详情 · ${displayModelName(detail.name, detail.source ?? null)}`}
-      onClose={() => store.set({ modelDetail: null })}
+      onClose={() => modelDetailGate.close()}
       glass
     >
         <div className="panel-title">
           模型详情 · {displayModelName(detail.name, detail.source ?? null)}
           <span className="right">
-            <FxCloseChip onClick={() => store.set({ modelDetail: null })} />
+            <FxCloseChip onClick={() => modelDetailGate.close()} />
           </span>
         </div>
         <div className="zup-grid metrics-grid" style={{ marginBottom: 12 }}>

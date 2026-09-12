@@ -648,12 +648,13 @@ function DailyConsumptionBars({ data }: { data: [number, number][] }) {
   const max = Math.max(...data.map(([, v]) => v), 0.0001);
   return (
     <div className="daily-bars">
-      {data.map(([day, v]) => (
+      {data.map(([dayStartMs, v]) => (
         <div
-          key={day}
+          key={dayStartMs}
           className="bar"
           style={{ height: `${Math.max(2, (v / max) * 44)}px` }}
-          title={`${formatDateTime(day * 86_400_000).slice(0, 10)}:${formatQuotaAmount(v)}`}
+          // 后端给的是本地天起始毫秒(与全局"今日"口径一致),直接格式化即可。
+          title={`${formatDateTime(dayStartMs).slice(0, 10)}:${formatQuotaAmount(v)}`}
         />
       ))}
     </div>

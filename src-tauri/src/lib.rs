@@ -209,6 +209,8 @@ fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
                 if s.close_to_tray {
                     api.prevent_close();
                     let _ = window.hide();
+                    // 隐藏到托盘后必须重算可见性,否则引擎/hub 仍按全速轮询。
+                    crate::visibility::update(app);
                 } else {
                     state.engine.save_snapshot();
                     settings::save(app, &s);
@@ -229,6 +231,8 @@ fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
                 if let Some(snap) = state.snap.get() {
                     snap.send(SnapMsg::Resized);
                 }
+                // 最小化/还原会改变窗口尺寸:重算一次,让最小化期间也暂停轮询。
+                crate::visibility::update(app);
             }
             WindowEvent::Focused(b) => {
                 if let Some(snap) = state.snap.get() {
@@ -249,6 +253,7 @@ fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
             WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
                 let _ = window.hide();
+                crate::visibility::update(app);
             }
             _ => {}
         },

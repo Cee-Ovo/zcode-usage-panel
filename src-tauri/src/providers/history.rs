@@ -347,13 +347,18 @@ impl QuotaHistory {
 
     /// Daily usage totals for one window over the last N days: sum of the
     /// per-day (max−min remaining) deltas. Used by the history chart.
+    ///
+    /// Buckets are **local** day starts, matching the rest of the app
+    /// (`aggregate::local_day_start_ms`); a UTC bucket would put local
+    /// 00:00–08:00 (UTC+8) into the previous day and disagree with the
+    /// "today" card.
     pub fn daily_consumption(&self, provider: &str, window_key: &str, days: u32, now_ms: i64) -> Vec<(i64, f64)> {
         let from = now_ms - days as i64 * 24 * 3600_000;
         let pts = self.points(provider, window_key, from, now_ms);
         let mut days_map: Vec<(i64, Vec<f64>)> = Vec::new();
         for p in &pts {
             if let Some(r) = p.remaining {
-                let day = p.ts_ms / 86_400_000;
+                let day = crate::zcode::aggregate::local_day_start_ms(p.ts_ms);
                 match days_map.iter_mut().find(|(d, _)| *d == day) {
                     Some((_, v)) => v.push(r),
                     None => days_map.push((day, vec![r])),
@@ -642,5 +647,23 @@ mod tests {
         let d = h.daily_consumption("p", "w", 3, base + day);
         assert_eq!(d.len(), 1);
         assert!((d[0].1 - 200.0).abs() < 1e-6);
+    }
+
+    /// 日归属必须按**本地天**(与"今日"卡片一致),而不是 UTC 天:
+    /// UTC+8 下本地 00:30 与 23:30 会落在不同的 UTC 日。
+    #[test]
+    fn daily_consumption_buckets_by_local_day() {
+        use crate::zcode::aggregate::local_day_start_ms;
+        let mut h = QuotaHistory::open_in_memory();
+        let day_start = local_day_start_ms(1_756_300_000_000);
+        let early = day_start + 30 * 60_000; // 本地 00:30
+        let late = day_start + 23 * 3600_000 + 30 * 60_000; // 本地 23:30
+        h.record(&snap_with("p", "w", 1.0, 1000.0, early));
+        h.record(&snap_with("p", "w", 1.0, 900.0, late));
+
+        let d = h.daily_consumption("p", "w", 3, late);
+        assert_eq!(d.len(), 1, "同一本地日的两点必须落在同一个桶");
+        assert_eq!(d[0].0, day_start, "桶键必须是本地天起始毫秒");
+        assert!((d[0].1 - 100.0).abs() < 1e-6);
     }
 }

@@ -320,9 +320,12 @@ fn parse_datetime_str(s: &str) -> Option<i64> {
     if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
         return Some(dt.timestamp_millis());
     }
-    // Missing timezone: assume UTC.
-    if s.len() >= 19 {
-        if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(&s[..19], "%Y-%m-%dT%H:%M:%S") {
+    // Missing timezone: assume UTC. `get` keeps the byte slice on a char
+    // boundary — a `&s[..19]` would panic (and, under `panic = "abort"`,
+    // kill the process) on any ≥19-byte string whose 19th byte is not a
+    // boundary, e.g. a localized date like "2026年08月27日 10时00分00秒".
+    if let Some(prefix) = s.get(..19) {
+        if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(prefix, "%Y-%m-%dT%H:%M:%S") {
             return Some(naive.and_utc().timestamp_millis());
         }
     }
@@ -544,5 +547,17 @@ mod tests {
                 .unwrap()
                 .timestamp_millis())
         );
+    }
+
+    /// 非 ASCII 的长时间戳串必须被安全拒绝:`&s[..19]` 会在多字节字符
+    /// 中间切片 panic,而 release 档 `panic = "abort"` 会直接终止进程。
+    #[test]
+    fn multibyte_timestamp_string_is_rejected_not_panicking() {
+        // 中文格式日期(19+ 字节,第 19 字节落在多字节字符中间)。
+        assert_eq!(parse_ts(&serde_json::json!("2026年08月27日 10时00分00秒")), None);
+        // 恰好 18 字节 ASCII + 一个 2 字节字符 → 第 19 字节非边界。
+        assert_eq!(parse_ts(&serde_json::json!("123456789012345678é")), None);
+        // 更长的纯 ASCII 非法串照旧返回 None。
+        assert_eq!(parse_ts(&serde_json::json!("not-a-timestamp-at-all")), None);
     }
 }

@@ -34,3 +34,6 @@ settings.json
 .env.*
 credentials.json
 client_secret*.json
+
+# ZCode CLI 本地运行时数据(计划/会话),不属于项目
+.zcode/

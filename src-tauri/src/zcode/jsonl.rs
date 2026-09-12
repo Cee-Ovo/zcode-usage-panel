@@ -22,10 +22,87 @@ const CHUNK_BUDGET: u64 = 8 * 1024 * 1024;
 /// accidentally watching a data dir that contains unrelated giants).
 pub const MAX_TRACKED_JSONL: u64 = 2 * 1024 * 1024 * 1024;
 
+/// Identity of the file currently backing a tracked path.
+///
+/// Lets the reader tell "the same file grew" from "a different file now lives
+/// at this path" (rotation / session cleanup), which the byte length alone
+/// cannot: a replacement that happens to be *longer* than the old offset would
+/// otherwise be read from the middle, silently losing its first records.
+///
+/// `base` is a platform identity (dev+ino on unix, creation time on Windows).
+/// `head` additionally catches an *in-place* rewrite that keeps the same
+/// platform identity, by hashing the first [`HEAD_BYTES`] bytes; it is `None`
+/// while the file is shorter than that, because until the prefix is full an
+/// append would change the hash and look like a replacement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FileId {
+    base: u64,
+    head: Option<u64>,
+}
+
+/// Bytes hashed for [`FileId::head`] — enough to cover a session header line.
+const HEAD_BYTES: usize = 256;
+
+#[cfg(unix)]
+fn base_stamp(meta: &std::fs::Metadata) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    // dev+ino is a true file identity on unix, so the head hash is redundant.
+    (meta.dev() << 32) ^ meta.ino()
+}
+
+#[cfg(windows)]
+fn base_stamp(meta: &std::fs::Metadata) -> u64 {
+    use std::os::windows::fs::MetadataExt;
+    meta.creation_time()
+}
+
+#[cfg(not(any(windows, unix)))]
+fn base_stamp(_meta: &std::fs::Metadata) -> u64 {
+    0
+}
+
+/// Hash of the file's first [`HEAD_BYTES`] bytes, or `None` while the file is
+/// shorter than that. Leaves the handle at an unspecified position; the caller
+/// seeks to the watermark afterwards.
+fn head_hash(file: &mut File, len: u64) -> Option<u64> {
+    use std::hash::{Hash, Hasher};
+    if len < HEAD_BYTES as u64 {
+        return None;
+    }
+    if file.seek(SeekFrom::Start(0)).is_err() {
+        return None;
+    }
+    let mut buf = [0u8; HEAD_BYTES];
+    if file.read_exact(&mut buf).is_err() {
+        return None;
+    }
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    buf.hash(&mut h);
+    Some(h.finish())
+}
+
+/// Whether the watermark must restart from zero: the path now holds a
+/// different file, or the file shrank under us.
+fn needs_restart(prev: Option<FileId>, current: Option<FileId>, offset: u64, len: u64) -> bool {
+    let replaced = match (prev, current) {
+        (Some(p), Some(c)) => {
+            p.base != c.base
+                || match (p.head, c.head) {
+                    (Some(a), Some(b)) => a != b,
+                    _ => false,
+                }
+        }
+        _ => false,
+    };
+    replaced || len < offset
+}
+
 #[derive(Clone, Debug)]
 pub struct JsonlSourceState {
     pub path: PathBuf,
     pub offset: u64,
+    /// Identity of the file the offset belongs to (see [`FileId`]).
+    pub file_id: Option<FileId>,
     pub session_hint: Option<String>,
     pub project_hint: Option<String>,
     pub records_read: u64,
@@ -48,6 +125,7 @@ impl JsonlSourceState {
         Self {
             path,
             offset: 0,
+            file_id: None,
             session_hint,
             project_hint,
             records_read: 0,
@@ -81,26 +159,32 @@ pub fn read_new(state: &mut JsonlSourceState) -> Result<Vec<UsageRecord>, Source
     if !state.discarding_oversized_line {
         state.last_error = None;
     }
-    let file = File::open(&state.path).map_err(|e| {
+    let mut file = File::open(&state.path).map_err(|e| {
         let classified = classify_io_error(&e);
         let _ = e;
         state.last_error = Some("unable to read JSONL source".into());
         classified
     })?;
-    let len = file.metadata().map_err(|e| classify_io_error(&e))?.len();
+    let meta = file.metadata().map_err(|e| classify_io_error(&e))?;
+    let len = meta.len();
     if len > MAX_TRACKED_JSONL {
         return Err(SourceError::Fatal(format!(
             "file larger than tracking limit ({} bytes)",
             len
         )));
     }
-    if len < state.offset {
-        // File was truncated or replaced (log rotation, session cleanup):
+    let current_id = Some(FileId {
+        base: base_stamp(&meta),
+        head: head_hash(&mut file, len),
+    });
+    if needs_restart(state.file_id, current_id, state.offset, len) {
+        // Truncated, rotated, or replaced by a different file at the same path:
         // restart from the beginning to stay consistent.
         state.offset = 0;
         state.discarding_oversized_line = false;
         state.last_error = None;
     }
+    state.file_id = current_id;
     if len == state.offset {
         return Ok(Vec::new());
     }
@@ -241,6 +325,59 @@ mod tests {
         let recs = read_new(&mut st).unwrap();
         assert_eq!(recs.len(), 1);
         assert_eq!(recs[0].model, "x");
+    }
+
+    /// 同路径被替换成**更长**的文件:仅靠长度判断不会复位 offset,会从
+    /// 中间续读并丢掉开头。文件指纹不一致时必须从头重读。
+    #[test]
+    fn replaced_by_larger_file_resets_offset() {
+        let (_dir, path) = tmp_jsonl(&format!(
+            "{}\n{}\n",
+            line("m", 1, 1, 1756300800),
+            line("m", 2, 2, 1756300860)
+        ));
+        let mut st = JsonlSourceState::new(path.clone());
+        assert_eq!(read_new(&mut st).unwrap().len(), 2);
+        assert!(st.offset > 0);
+        let old_offset = st.offset;
+
+        std::fs::write(
+            &path,
+            format!(
+                "{}\n{}\n{}\n",
+                line("x", 9, 9, 1756301000),
+                line("y", 8, 8, 1756301060),
+                line("z", 7, 7, 1756301120)
+            ),
+        )
+        .unwrap();
+        assert!(
+            std::fs::metadata(&path).unwrap().len() > old_offset,
+            "前提:替换后的文件必须更长,否则长度判断也能兜住"
+        );
+        // 模拟"同路径已是另一个文件":把记录下来的指纹换成一个不同的值。
+        st.file_id = Some(FileId { base: u64::MAX, head: None });
+
+        let recs = read_new(&mut st).unwrap();
+        assert_eq!(recs.len(), 3, "替换后的文件必须从头重读");
+        assert_eq!(recs[0].model, "x");
+    }
+
+    /// 指纹判定本身是纯函数,直接覆盖四种组合。
+    #[test]
+    fn needs_restart_decision_table() {
+        let a = FileId { base: 1, head: Some(1) };
+        let b = FileId { base: 1, head: Some(2) };
+        // 同一文件继续增长 → 不复位
+        assert!(!needs_restart(Some(a), Some(a), 100, 200));
+        // 换成了另一个文件(哪怕更长)→ 复位
+        assert!(needs_restart(Some(a), Some(b), 100, 200));
+        // 文件变小 → 复位
+        assert!(needs_restart(Some(a), Some(a), 200, 100));
+        // 平台不支持指纹(或首次读取)→ 退回长度判断
+        assert!(!needs_restart(None, None, 100, 200));
+        assert!(needs_restart(None, None, 200, 100));
+        assert!(!needs_restart(None, Some(a), 100, 200));
     }
 
     #[test]

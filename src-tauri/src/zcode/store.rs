@@ -4,7 +4,8 @@
 //! incrementally maintained per-session accumulator map. Range queries are
 //! served through binary-searched slices — no full-history rescans.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 use super::aggregate::{Agg, SessionSummary};
 use super::session_meta::SessionMetaEntry;
@@ -186,6 +187,58 @@ impl UsageStore {
         seen.into_iter().collect()
     }
 
+    /// Drop every record that came from one of the `gone` source files and
+    /// rebuild the derived session accumulators from what is left.
+    ///
+    /// Used when a source file disappears from the data root (ZCode session
+    /// cleanup, a manually deleted log) so the deleted history stops counting
+    /// right away instead of at the next process restart. `total_ingested` is
+    /// deliberately left alone: it counts how much has been *read*, not what
+    /// is currently held, and the UI treats it as a monotonic revision.
+    pub fn drop_source_files(&mut self, gone: &HashSet<std::path::PathBuf>) -> usize {
+        if gone.is_empty() {
+            return 0;
+        }
+        let before = self.records.len();
+        self.records
+            .retain(|r| !gone.contains(Path::new(r.source_file.as_str())));
+        let removed = before - self.records.len();
+        if removed > 0 {
+            self.rebuild_sessions();
+        }
+        removed
+    }
+
+    /// Clear all state. Used when the configured data root changes: records
+    /// from the old root must not mix with (nor be double-counted alongside)
+    /// the new one, and the per-file watermarks that go with them are dropped
+    /// by the caller.
+    pub fn reset(&mut self) {
+        self.records.clear();
+        self.sessions.clear();
+        self.session_meta.clear();
+        self.sessions_cache = None;
+        self.active_session = None;
+        self.last_record_ms = None;
+        self.total_ingested = 0;
+        self.restored_from_cache = false;
+    }
+
+    /// Rebuild `sessions` / `active_session` / `last_record_ms` from `records`.
+    /// `records` is already ts-sorted, so the accumulators can be replayed in
+    /// order and the running max is simply the last timestamp.
+    fn rebuild_sessions(&mut self) {
+        let records = std::mem::take(&mut self.records);
+        self.sessions.clear();
+        self.active_session = None;
+        self.sessions_cache = None;
+        for r in &records {
+            self.ingest_into_sessions(r);
+        }
+        self.last_record_ms = records.last().map(|r| r.ts_ms);
+        self.records = records;
+    }
+
     pub(crate) fn ingest_into_sessions(&mut self, rec: &UsageRecord) {
         if let Some(sid) = &rec.session_id {
             let replace = self.active_session.as_ref().map_or(true, |(ts, id)| {
@@ -334,5 +387,65 @@ mod tests {
         let s = st.session_summary("sess-1").unwrap();
         assert_eq!(s.project.as_deref(), Some("proj-A"));
         assert_eq!(s.project_path.as_deref(), Some("/x/panel"));
+    }
+
+    fn rec_in(ts: i64, model: &str, session: &str, file: &str) -> UsageRecord {
+        UsageRecord { source_file: file.into(), ..rec(ts, model, session) }
+    }
+
+    fn files(names: &[&str]) -> HashSet<std::path::PathBuf> {
+        names.iter().map(std::path::PathBuf::from).collect()
+    }
+
+    /// 源文件消失后,来自它的记录必须立刻不再计入,且会话聚合要跟着重建。
+    #[test]
+    fn drop_source_files_removes_records_and_rebuilds_sessions() {
+        let mut st = UsageStore::new();
+        st.ingest(vec![
+            rec_in(1000, "a", "s1", "f1.jsonl"),
+            rec_in(2000, "b", "s2", "f2.jsonl"),
+            rec_in(3000, "a", "s1", "f1.jsonl"),
+        ]);
+        assert_eq!(st.len(), 3);
+        assert_eq!(st.session_summary("s1").unwrap().agg.requests, 2);
+
+        assert_eq!(st.drop_source_files(&files(&["f1.jsonl"])), 2);
+        assert_eq!(st.len(), 1);
+        assert!(st.session_summary("s1").is_none(), "被删文件的会话必须消失");
+        assert_eq!(st.session_summary("s2").unwrap().agg.requests, 1);
+        assert_eq!(st.all_model_names(), vec!["b"]);
+        assert_eq!(st.last_record_ms, Some(2000));
+        // 累计读数语义是"读过多少",不回退。
+        assert_eq!(st.total_ingested, 3);
+
+        // 空集合与无匹配路径都是安全的 no-op。
+        assert_eq!(st.drop_source_files(&HashSet::new()), 0);
+        assert_eq!(st.drop_source_files(&files(&["nope.jsonl"])), 0);
+        assert_eq!(st.len(), 1);
+    }
+
+    /// 数据根变更时的整体清空:记录、会话、元数据与所有派生状态都要归零,
+    /// 否则切换目录后会拿旧目录的数字顶上。
+    #[test]
+    fn reset_clears_records_sessions_meta_and_derived_state() {
+        let mut st = UsageStore::new();
+        st.ingest(vec![rec_in(1000, "a", "s1", "f1.jsonl")]);
+        let mut m = std::collections::HashMap::new();
+        m.insert("s1".to_string(), meta("s1", Some("t"), Some("/x/panel")).1);
+        st.apply_session_meta(m);
+        st.restored_from_cache = true;
+        st.session_summaries(); // 预热缓存
+
+        st.reset();
+
+        assert!(st.is_empty());
+        assert_eq!(st.len(), 0);
+        assert!(st.history_start_ms().is_none());
+        assert_eq!(st.last_record_ms, None);
+        assert_eq!(st.total_ingested, 0);
+        assert!(!st.restored_from_cache);
+        assert!(st.session_summaries().is_empty());
+        assert!(st.active_session_id().is_none());
+        assert!(st.all_model_names().is_empty());
     }
 }

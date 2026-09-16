@@ -1,6 +1,6 @@
 [package]
 name = "zcode-usage-panel"
-version = "1.4.2"
+version = "1.4.3"
 description = "Real-time ZCode Harness token usage monitor"
 authors = ["ZCode Usage Panel contributors"]
 license = "MIT"

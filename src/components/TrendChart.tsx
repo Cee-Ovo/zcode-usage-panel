@@ -186,7 +186,7 @@ export function TrendChart({
                         width={bw * 0.72}
                         height={Math.max(0, y2 - y1)}
                         fill={s.color}
-                        opacity={hover === null || hover === i ? 0.88 : 0.45}
+                        opacity={hover === null || hover === i ? 0.94 : 0.45}
                         rx={Math.min(2, bw * 0.2)}
                         style={{ transition: "opacity 160ms ease" }}
                       />

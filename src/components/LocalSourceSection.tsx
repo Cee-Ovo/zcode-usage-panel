@@ -17,6 +17,7 @@ import {
   formatCny,
   formatFull,
   formatLatency,
+  formatModelSpeed,
   formatPercent,
   formatRate,
   formatRelative,
@@ -336,6 +337,12 @@ export function LocalSourceSection({
             <span>{formatRate(dash.activeSession.tokensPerMin)}(近 5 分钟)</span>
             <span className="k">最近请求</span>
             <span>{formatRelative(dash.activeSession.lastRequestMs)}</span>
+            <span className="k">最近模型速度</span>
+            <span title="当前 Session 最近模型的 TTFT 均值与生成速度(与响应速度卡同口径)">
+              {formatModelSpeed(
+                dash.models.find((m) => m.name === dash.activeSession?.activeModel)?.speed,
+              )}
+            </span>
             <span className="k">项目</span>
             <span>{dash.activeSession.project ?? "—"}</span>
             <span className="k">模型切换</span>

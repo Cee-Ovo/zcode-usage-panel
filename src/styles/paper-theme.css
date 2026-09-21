@@ -22,11 +22,11 @@
   --paper-ok: #2e9e7b;
   --paper-dot: rgba(28, 28, 30, 0.07);
 
-  /* 图表系列色（KIND_SERIES / MODEL_PALETTE 的前四位） */
-  --zup-series-input: #a9b8f2;
+  /* 图表系列色(K3 色板加深一档:input/cache 原色偏浅,白卡上发飘) */
+  --zup-series-input: #8093ee;
   --zup-series-output: #3a5bec;
   --zup-series-reasoning: #8e7cf0;
-  --zup-series-cache: #6fc3d8;
+  --zup-series-cache: #3fb3cf;
 }
 
 :root[data-theme="dark"] {

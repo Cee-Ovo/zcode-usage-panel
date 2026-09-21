@@ -259,6 +259,9 @@
       "models": [
         {
           "model": "claude-fable-5.1",
+          "aliases": [
+            "claude-fable-5-1"
+          ],
           "currency": "USD",
           "pricing": {
             "type": "flat",
@@ -277,7 +280,8 @@
           "notes": [
             "5.1 代缓存读降至 $0.25/M（输入价的 2.5%，官方页）",
             "缓存写入按 5m 档计价（数据源无法区分 5m/1h）",
-            "thinking 已包含在 output_tokens 中，按 Output 计费一次"
+            "thinking 已包含在 output_tokens 中，按 Output 计费一次",
+            "claude-fable-5-1 是同一模型的横杠写法（LiteLLM 价格库同名条目为 $10/$0.25/$50，与本条目一致）"
           ]
         },
         {
@@ -602,6 +606,9 @@
         },
         {
           "model": "gpt-5.6-luna",
+          "aliases": [
+            "codex-auto-review"
+          ],
           "currency": "USD",
           "pricing": {
             "type": "flat",
@@ -617,7 +624,8 @@
           "promo": null,
           "notes": [
             "标准档（短上下文）价格；长上下文请求费率上浮（官方页），本表按标准档估算",
-            "cached input 为包含式口径（input 已含命中部分）"
+            "cached input 为包含式口径（input 已含命中部分）",
+            "codex-auto-review 是 Codex 侧同一模型的名字（用户 2026-09-21 确认），按本条目计价"
           ]
         },
         {
@@ -994,6 +1002,37 @@
             "输入/输出为官方页华北2（北京）现价 0.8 / 2.7 元每百万 tokens（2026-09-21 核对）",
             "缓存命中价官方只写「不是输入价的 20%，具体见控制台」、控制台需登录；此处按 OpenRouter 与 LiteLLM 价格库一致给出的缓存读/输入比 10.7% 折算（0.085 元）",
             "官方页另有国际站价（输入 1.094 / 输出 3.427 元），本表按中国内地标准档录入"
+          ]
+        }
+      ]
+    },
+    {
+      "provider": "xiaomi",
+      "display_name": "小米 MiMo",
+      "provider_match": [
+        "xiaomi",
+        "xiaomimimo",
+        "mimo"
+      ],
+      "models": [
+        {
+          "model": "mimo-v2.5",
+          "currency": "USD",
+          "pricing": {
+            "type": "flat",
+            "input_per_m": 0.14,
+            "cache_hit_per_m": 0.0028,
+            "cache_write_per_m": null,
+            "cache_storage_per_m": null,
+            "output_per_m": 0.28
+          },
+          "reasoning_policy": "included_in_output",
+          "source_url": "https://openrouter.ai/api/v1/models",
+          "updated_at": "2026-09-21",
+          "promo": null,
+          "notes": [
+            "小米未公开该型号的官方价目；此处取 OpenRouter 与 LiteLLM 价格库一致给出的 xiaomi/mimo-v2.5 单价（$0.14 / $0.0028 / $0.28）",
+            "用量极小（累计约 4 万 tokens），且 DSH 上游无法确认，误差可忽略"
           ]
         }
       ]

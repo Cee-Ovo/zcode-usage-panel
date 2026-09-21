@@ -938,6 +938,65 @@
           ]
         }
       ]
+    },
+    {
+      "provider": "alibaba",
+      "display_name": "阿里云百炼 / Qwen",
+      "provider_match": [
+        "alibaba",
+        "aliyun",
+        "bailian",
+        "dashscope",
+        "maas",
+        "qwen"
+      ],
+      "models": [
+        {
+          "model": "qwen3.8-max",
+          "aliases": [
+            "qwen3.8-max-0902"
+          ],
+          "currency": "CNY",
+          "pricing": {
+            "type": "flat",
+            "input_per_m": 12.0,
+            "cache_hit_per_m": 1.5,
+            "cache_write_per_m": null,
+            "cache_storage_per_m": null,
+            "output_per_m": 36.0
+          },
+          "reasoning_policy": "included_in_output",
+          "source_url": "https://help.aliyun.com/zh/model-studio/billing-for-model-studio",
+          "updated_at": "2026-09-21",
+          "promo": null,
+          "notes": [
+            "输入/输出为官方页华北2（北京）现价 12 / 36 元每百万 tokens（2026-09-21 核对）",
+            "缓存命中价官方只写「不是输入价的 20%，具体见控制台」、控制台需登录；此处按 OpenRouter 与 LiteLLM 价格库一致给出的缓存读/输入比 12.5% 折算（1.5 元）",
+            "官方页另有国际站价（输入 14.988 / 输出 44.965 元）与优速模式 Prime 价（24 / 72 元），本表按中国内地标准档录入"
+          ]
+        },
+        {
+          "model": "qwen3.8-flash",
+          "currency": "CNY",
+          "pricing": {
+            "type": "flat",
+            "input_per_m": 0.8,
+            "cache_hit_per_m": 0.085,
+            "cache_write_per_m": null,
+            "cache_storage_per_m": null,
+            "output_per_m": 2.7
+          },
+          "reasoning_policy": "included_in_output",
+          "source_url": "https://help.aliyun.com/zh/model-studio/billing-for-model-studio",
+          "updated_at": "2026-09-21",
+          "promo": null,
+          "notes": [
+            "输入/输出为官方页华北2（北京）现价 0.8 / 2.7 元每百万 tokens（2026-09-21 核对）",
+            "缓存命中价官方只写「不是输入价的 20%，具体见控制台」、控制台需登录；此处按 OpenRouter 与 LiteLLM 价格库一致给出的缓存读/输入比 10.7% 折算（0.085 元）",
+            "官方页另有国际站价（输入 1.094 / 输出 3.427 元），本表按中国内地标准档录入"
+          ]
+        }
+      ]
     }
   ],
   "fx_fallback": {

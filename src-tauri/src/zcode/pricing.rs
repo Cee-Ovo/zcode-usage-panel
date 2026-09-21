@@ -1496,7 +1496,7 @@ mod tests {
     #[test]
     fn builtin_json_parses() {
         let t = builtin();
-        assert_eq!(t.entries.len(), 10);
+        assert_eq!(t.entries.len(), 11);
         let models: Vec<&str> = t.entries.iter().flat_map(|p| p.models.iter().map(|m| m.model.as_str())).collect();
         assert!(models.contains(&"glm-5.3-flash"));
         assert!(models.contains(&"deepseek-v4-flash"));
@@ -1515,6 +1515,8 @@ mod tests {
         // 2026-09-21 官方页核对后新增（此前价格未知）。
         assert!(models.contains(&"glm-5.3-flashx"));
         assert!(models.contains(&"step-5-preview"));
+        assert!(models.contains(&"qwen3.8-max"));
+        assert!(models.contains(&"qwen3.8-flash"));
         // 带供应商前缀的同一型号按别名匹配（本地日志里的原始写法）。
         assert!(find_entry(&t, "z-ai/glm-5.2").is_some());
         assert!(find_entry(&t, "minimaxai/minimax-m3").is_some());

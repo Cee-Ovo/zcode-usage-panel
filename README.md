@@ -39,7 +39,7 @@ ZCode Usage Panel 是一个常驻 Windows 桌面的用量驾驶舱：把 ZCode�
 
 ### 💰 花费估算
 
-内置智谱 / DeepSeek / Anthropic / OpenAI / xAI / Moonshot / Google / MiniMax / 字节 / 阶跃星辰等 35+ 模型官方单价（编译进二进制，来源与日期可查），支持模型级覆盖、远程价格表、促销价到期自动回落；DeepSeek 按北京时间峰谷分时计价；USD→CNY 每日自动刷新。所有金额都明确标注「按官方 API 单价估算 · 非实际 Billing」。
+内置智谱 / DeepSeek / Anthropic / OpenAI / xAI / Moonshot / Google / MiniMax / 字节 / 阶跃星辰 / 阿里云百炼等 39 个模型官方单价（编译进二进制，来源与日期可查），支持模型级覆盖、远程价格表、促销价到期自动回落；DeepSeek 按北京时间峰谷分时计价；USD→CNY 每日自动刷新。所有金额都明确标注「按官方 API 单价估算 · 非实际 Billing」。
 
 ### 🖥 桌面体验
 

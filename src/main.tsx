@@ -9,6 +9,7 @@ import "./styles/refinement.css";
 import "./styles/provider-refinement.css";
 import "./styles/frosted-sample.css";
 import { store, type AppState } from "./lib/store";
+import "./styles/paper-theme.css";
 
 // Dev-server convenience: no Tauri IPC in a plain browser, so seed the store
 // with representative mock data BEFORE first render to keep the UI browsable

@@ -1,0 +1,349 @@
+/* ==========================================================================
+   Paper theme — Kimi K3 纸感极简（移植自 Usage panel web 版 styles.css）
+   纸感极简 · 细线边框 · 点阵背景 · 黑白药丸控件 · 克制的蓝色强调
+
+   Load order: LAST (after theme, global, liquid 系列, refinement, frosted-sample).
+   open-glass-ui 的 Glass 通过内联样式写入材质，因此覆写必须带 !important。
+   ========================================================================== */
+
+:root {
+  /* K3 令牌：强调蓝 + 黑白药丸 */
+  --paper-accent: #3a5bec;
+  --paper-page: #fafaf8;
+  --paper-card: #ffffff;
+  --paper-muted: #f4f4f2;
+  --paper-line: rgba(28, 28, 30, 0.08);
+  --paper-line-strong: rgba(28, 28, 30, 0.14);
+  --paper-ink: #1c1c1e;
+  --paper-ink-2: #57575e;
+  --paper-ink-3: #9a9aa0;
+  --paper-danger: #d64545;
+  --paper-warn: #c28a1f;
+  --paper-ok: #2e9e7b;
+  --paper-dot: rgba(28, 28, 30, 0.07);
+
+  /* 图表系列色（KIND_SERIES / MODEL_PALETTE 的前四位） */
+  --zup-series-input: #a9b8f2;
+  --zup-series-output: #3a5bec;
+  --zup-series-reasoning: #8e7cf0;
+  --zup-series-cache: #6fc3d8;
+}
+
+:root[data-theme="dark"] {
+  --paper-accent: #7b93f8;
+  --paper-page: #131313;
+  --paper-card: #1c1c1e;
+  --paper-muted: #232326;
+  --paper-line: rgba(255, 255, 255, 0.08);
+  --paper-line-strong: rgba(255, 255, 255, 0.16);
+  --paper-ink: #f0f0f2;
+  --paper-ink-2: #a8a8ae;
+  --paper-ink-3: #6d6d74;
+  --paper-danger: #e5726f;
+  --paper-warn: #d8a545;
+  --paper-ok: #46b98d;
+  --paper-dot: rgba(255, 255, 255, 0.055);
+
+  --zup-series-input: #8d9df5;
+  --zup-series-output: #6f86f5;
+  --zup-series-reasoning: #a99cf7;
+  --zup-series-cache: #7fd0e0;
+}
+
+/* ---- 1. 令牌重映射（压过 refinement.css 的靛蓝体系） --------------------- */
+
+:root {
+  --zup-blue-500: var(--paper-accent);
+  --zup-blue-600: #2c46c9;
+  --zup-cyan-400: #6fc3d8;
+  --zup-violet-400: #8e7cf0;
+  --zup-text-1: var(--paper-ink);
+  --zup-text-2: var(--paper-ink-2);
+  --zup-text-3: var(--paper-ink-3);
+  --zup-danger: var(--paper-danger);
+  --zup-warn: var(--paper-warn);
+  --zup-ok: var(--paper-ok);
+
+  --refine-surface: #ffffff;
+  --refine-bg: #fafaf8;
+  --refine-muted: #f4f4f2;
+  --refine-line: var(--paper-line);
+  --refine-shadow: 0 1px 2px rgba(28, 28, 30, 0.04);
+}
+
+:root[data-theme="dark"] {
+  --zup-blue-500: var(--paper-accent);
+  --zup-blue-600: #9db0fb;
+  --zup-cyan-400: #7fd0e0;
+  --zup-violet-400: #a99cf7;
+  --zup-text-1: var(--paper-ink);
+  --zup-text-2: var(--paper-ink-2);
+  --zup-text-3: var(--paper-ink-3);
+  --zup-danger: var(--paper-danger);
+  --zup-warn: var(--paper-warn);
+  --zup-ok: var(--paper-ok);
+
+  --refine-surface: #1c1c1e;
+  --refine-bg: #131313;
+  --refine-muted: #232326;
+  --refine-line: var(--paper-line);
+  --refine-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+}
+
+/* frosted-sample 会二次覆写文字令牌，这里以同选择器、更晚加载压回。 */
+:root .zup-shell.frosted-sample {
+  background: var(--paper-page);
+  --zup-text-1: var(--paper-ink);
+  --zup-text-2: var(--paper-ink-2);
+  --zup-text-3: var(--paper-ink-3);
+  --refine-line: var(--paper-line);
+}
+:root[data-theme="dark"] .zup-shell.frosted-sample {
+  background: var(--paper-page);
+  --zup-text-1: var(--paper-ink);
+  --zup-text-2: var(--paper-ink-2);
+  --zup-text-3: var(--paper-ink-3);
+  --refine-line: var(--paper-line);
+}
+
+/* ---- 2. 点阵背景（K3 标志性，边缘淡出） --------------------------------- */
+
+.zup-shell.zup-frame::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: radial-gradient(circle, var(--paper-dot, rgba(28, 28, 30, 0.07)) 1px, transparent 1px);
+  background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, #000 0%, transparent 78%);
+  mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, #000 0%, transparent 78%);
+}
+
+/* ---- 3. 去玻璃化：所有卡片 = 白卡 + 细线 + 微阴影 ------------------------ */
+
+:root .zup-frame :is(.panel, .metric-card, .overlay-card, .codex-panel, .quota-card, .pkg-row, .settings-nav-btn) {
+  background: var(--paper-card) !important;
+  border: 1px solid var(--paper-line) !important;
+  box-shadow: var(--refine-shadow) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+:root[data-theme="dark"] .zup-frame :is(.panel, .metric-card, .overlay-card, .codex-panel, .quota-card, .pkg-row, .settings-nav-btn) {
+  background: var(--paper-card) !important;
+  border-color: var(--paper-line) !important;
+  box-shadow: var(--refine-shadow) !important;
+}
+
+/* 侧栏两块浮动玻璃组 → 实心卡片 */
+:root .zup-frame .sidebar-navigation,
+:root .zup-frame .sidebar-status {
+  background: var(--paper-card) !important;
+  border: 1px solid var(--paper-line) !important;
+  box-shadow: var(--refine-shadow) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+:root[data-theme="dark"] .zup-frame .sidebar-navigation,
+:root[data-theme="dark"] .zup-frame .sidebar-status {
+  background: var(--paper-card) !important;
+}
+
+/* ---- 4. 导航：K3 药丸（激活态黑白反转） ---------------------------------- */
+
+:root .zup-frame .zup-nav-item {
+  border-radius: 999px;
+}
+
+:root .zup-frame .zup-nav-item:hover {
+  background: var(--paper-muted);
+  color: var(--paper-ink);
+}
+
+:root .zup-frame .zup-nav-item.active,
+:root .zup-frame .sidebar-navigation .zup-nav-item.active {
+  background: var(--paper-ink) !important;
+  color: var(--paper-page) !important;
+  box-shadow: none !important;
+  border: 1px solid transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* frosted-sample 用库令牌(--ogui-color-control-active,运行时内联定义)
+   给浅色激活项上米灰,特异性打平后按加载序仍可能翻车——直接 !important 锁死。 */
+:root .frosted-sample .sidebar-navigation .zup-nav-item.active {
+  background: var(--paper-ink) !important;
+  color: var(--paper-page) !important;
+}
+
+:root[data-theme="dark"] .zup-frame .zup-nav-item.active {
+  color: var(--paper-page) !important;
+}
+
+/* 标题栏按钮保持幽灵样式，悬停给纸感灰 */
+:root .zup-frame .titlebar-btn:hover {
+  background: var(--paper-muted);
+}
+
+/* ---- 5. 控件药丸化 ------------------------------------------------------- */
+
+/* open-glass-ui Button → 细线药丸；primary = 黑白反转 */
+:root .zup-frame .ogui-button {
+  border-radius: 999px !important;
+  border: 1px solid var(--paper-line) !important;
+  background: var(--paper-card) !important;
+  color: var(--paper-ink-2) !important;
+  box-shadow: none !important;
+}
+
+:root .zup-frame .ogui-button:hover:not(:disabled) {
+  color: var(--paper-ink) !important;
+  border-color: var(--paper-line-strong) !important;
+  background: var(--paper-card) !important;
+}
+
+:root .zup-frame .ogui-button--primary {
+  background: var(--paper-ink) !important;
+  border-color: var(--paper-ink) !important;
+  color: var(--paper-page) !important;
+}
+
+:root .zup-frame .ogui-button--primary:hover:not(:disabled) {
+  background: var(--paper-ink) !important;
+  color: var(--paper-page) !important;
+}
+
+:root .zup-frame .ogui-button--danger {
+  color: var(--paper-danger) !important;
+  border-color: color-mix(in srgb, var(--paper-danger) 35%, transparent) !important;
+  background: var(--paper-card) !important;
+}
+
+:root .zup-frame .fx-press--primary .fx-btn {
+  color: var(--paper-page) !important;
+}
+
+/* Switch：选中轨道 = 墨色 */
+:root .zup-frame .ogui-switch input:checked ~ .ogui-switch__track {
+  background: var(--paper-ink);
+}
+
+:root[data-theme="dark"] .zup-frame .ogui-switch input:checked ~ .ogui-switch__track .ogui-switch__thumb {
+  background: #131313;
+}
+
+/* 库 SegmentedControl → K3 药丸（压过 theme.css 的浅色重绘） */
+:root .zup-frame .ogui-segments {
+  background: var(--paper-muted) !important;
+  border-color: var(--paper-line) !important;
+  box-shadow: none !important;
+}
+
+:root .zup-frame .ogui-segments__item {
+  color: var(--paper-ink-2);
+  border-radius: 999px;
+}
+
+:root .zup-frame .ogui-segments__item[aria-pressed="true"] {
+  color: var(--paper-page) !important;
+  background: var(--paper-ink) !important;
+  box-shadow: none !important;
+}
+
+:root .zup-frame .ogui-segments__item:hover:not([aria-pressed="true"]) {
+  color: var(--paper-ink);
+  background: transparent;
+}
+
+/* liquid-segments（分区/范围切换）→ 同款药丸 */
+:root .zup-frame .liquid-segments {
+  --liquid-segments-track: var(--paper-muted);
+  --liquid-segments-track-border: var(--paper-line);
+  --liquid-segments-ink: var(--paper-ink-2);
+  --liquid-segments-active-ink: var(--paper-page);
+  --liquid-segments-lens: var(--paper-ink);
+  --liquid-segments-lens-edge: transparent;
+  --liquid-segments-lens-shadow: transparent;
+  --liquid-segments-hover: rgba(28, 28, 30, 0.05);
+  border-radius: 999px;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme="dark"] .zup-frame .liquid-segments {
+  --liquid-segments-hover: rgba(255, 255, 255, 0.07);
+}
+
+:root .zup-frame .liquid-segments__lens {
+  background: var(--liquid-segments-lens) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.zup-frame .liquid-segments__lens::before {
+  display: none;
+}
+
+.zup-frame .liquid-segments__item[aria-pressed="true"]::after {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* 下拉/菜单浮层 */
+:root .zup-frame .ogui-menu,
+:root .zup-frame .ogui-select__listbox {
+  background: var(--paper-card) !important;
+  border: 1px solid var(--paper-line) !important;
+  box-shadow: 0 6px 24px rgba(28, 28, 30, 0.1), 0 1px 2px rgba(28, 28, 30, 0.05) !important;
+}
+
+/* ---- 6. 细节收口 --------------------------------------------------------- */
+
+/* 占比条：K3 黑色条 */
+:root .zup-frame .share-fill {
+  background: var(--paper-ink);
+  opacity: 0.9;
+}
+
+:root .zup-frame .daily-bars .bar {
+  background: var(--paper-ink);
+  opacity: 0.85;
+}
+
+/* 涟漪/光扫是玻璃语言，纸感下一律关闭（保留 spinner/shake 反馈） */
+.zup-frame .fx-ripple,
+.zup-frame .fx-ripple--light {
+  display: none;
+}
+
+/* 弹层遮罩：中性压暗 */
+:root .zup-frame .overlay-backdrop {
+  background: rgba(15, 15, 16, 0.32);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme="dark"] .zup-frame .overlay-backdrop {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+/* 顶栏融合进纸面 */
+:root .zup-frame .zup-titlebar {
+  background: transparent;
+  border-bottom: 1px solid var(--paper-line);
+}
+
+:root .zup-frame .zup-nav {
+  background: transparent;
+  border-right: 1px solid var(--paper-line);
+}
+
+/* 页脚状态区不再做卡片（K3 里它是纯文本行） */
+:root .zup-frame .zup-nav .footnote {
+  border-top: 1px solid var(--paper-line);
+}

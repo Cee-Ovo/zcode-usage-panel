@@ -38,15 +38,16 @@ const STACK_SERIES: {
   },
 ];
 
+/* K3 模型色板（Usage panel web 版 MODEL_PALETTE） */
 const MODEL_COLORS = [
-  "#2f7bf6",
-  "#35c5e8",
-  "#8f7bf5",
-  "#29a383",
-  "#f5a524",
-  "#e5484d",
-  "#0ea5e9",
-  "#be185d",
+  "#3a5bec",
+  "#6fc3d8",
+  "#8e7cf0",
+  "#3ec9a7",
+  "#e8b04b",
+  "#e37f94",
+  "#98a8b8",
+  "#b9bec7",
 ];
 
 export function TrendChart({

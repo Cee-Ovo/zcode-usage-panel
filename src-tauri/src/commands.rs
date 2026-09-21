@@ -25,7 +25,6 @@ pub struct AppState {
     pub settings_dirty: AtomicBool,
     pub snap: OnceLock<crate::windows::snap::SnapManager>,
     pub hub: crate::providers::hub::ProviderHub,
-    pub secrets: Arc<dyn crate::providers::secrets::SecretStorage>,
 }
 
 pub type SharedAppState = Arc<AppState>;
@@ -649,11 +648,6 @@ pub fn get_model_detail(
     model_detail_from_records(&name, &provider, &records, now)
 }
 
-#[tauri::command]
-pub fn get_alerts(state: State<'_, SharedAppState>) -> Vec<crate::alerts::AlertEvent> {
-    let inner = state.engine.inner.lock().unwrap();
-    inner.alert_log.clone()
-}
 
 #[tauri::command]
 pub fn diagnose(state: State<'_, SharedAppState>) -> DiagnoseDto {
@@ -734,9 +728,8 @@ pub fn set_settings(
         let autostart_changed = true; // cheap to re-apply unconditionally
         let data_dir_changed = guard.data_dir != new_settings.data_dir;
         let paused_changed = guard.monitoring_paused != new_settings.monitoring_paused;
-        let providers_changed = guard.providers != new_settings.providers
-            || guard.launcher != new_settings.launcher
-            || guard.quota_alerts != new_settings.quota_alerts;
+        let providers_changed =
+            guard.providers != new_settings.providers || guard.launcher != new_settings.launcher;
         *guard = new_settings.clone();
         drop(guard);
 
@@ -912,7 +905,7 @@ pub fn quit_app(app: AppHandle, state: State<'_, SharedAppState>) {
 }
 
 // ---------------------------------------------------------------------------
-// Multi-provider quota dashboard
+// Provider snapshots (local data sources)
 // ---------------------------------------------------------------------------
 
 /// All provider snapshots (cached — instant, never triggers network).
@@ -921,58 +914,10 @@ pub fn providers_overview(state: State<'_, SharedAppState>) -> Vec<crate::provid
     state.hub.overview()
 }
 
-/// Force a refresh (one provider id, or all when omitted/null).
-#[tauri::command]
-pub fn providers_refresh(state: State<'_, SharedAppState>, provider: Option<String>) {
-    state.hub.refresh_now(provider);
-}
 
-#[tauri::command]
-pub fn quota_alerts_list(state: State<'_, SharedAppState>) -> Vec<crate::providers::quota_alerts::AlertEvent> {
-    state.hub.quota_alert_log()
-}
 
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HistoryPointDto {
-    pub ts_ms: i64,
-    pub used_percent: Option<f64>,
-    pub used: Option<f64>,
-    pub remaining: Option<f64>,
-}
 
-/// Quota-window history for the trend view. `range`: "today" | "7d" | "30d".
-#[tauri::command]
-pub fn providers_history(
-    state: State<'_, SharedAppState>,
-    provider: String,
-    window: String,
-    range: String,
-) -> Vec<HistoryPointDto> {
-    let now = now_ms();
-    let from = match range.as_str() {
-        "today" => crate::zcode::aggregate::local_day_start_ms(now),
-        "7d" => now - 7 * 24 * 3600_000,
-        _ => now - 30 * 24 * 3600_000,
-    };
-    state
-        .hub
-        .history_for(&provider, &window, from, now)
-        .into_iter()
-        .map(|p| HistoryPointDto { ts_ms: p.ts_ms, used_percent: p.used_percent, used: p.used, remaining: p.remaining })
-        .collect()
-}
 
-/// Daily consumption deltas for one window over N days.
-#[tauri::command]
-pub fn providers_consumption(
-    state: State<'_, SharedAppState>,
-    provider: String,
-    window: String,
-    days: u32,
-) -> Vec<(i64, f64)> {
-    state.hub.consumption(&provider, &window, days.clamp(1, 90), now_ms())
-}
 
 // -- ZCode launcher ----------------------------------------------------------
 
@@ -1005,36 +950,10 @@ pub fn zcode_reveal(state: State<'_, SharedAppState>) -> LauncherActionDto {
     LauncherActionDto { result, snapshot }
 }
 
-// -- Volcengine credentials (OS keyring; values never come back out) ---------
 
-#[tauri::command]
-pub fn volcengine_credentials_status(
-    state: State<'_, SharedAppState>,
-) -> crate::providers::hub::CredentialsStatusDto {
-    crate::providers::hub::credentials_status(&state.secrets)
-}
 
-#[tauri::command]
-pub fn volcengine_credentials_set(
-    state: State<'_, SharedAppState>,
-    ak: String,
-    sk: String,
-) -> Result<(), String> {
-    crate::providers::hub::set_volcengine_credentials(&state.secrets, &ak, &sk)?;
-    state.hub.refresh_now(Some("volcengine".into()));
-    Ok(())
-}
 
-#[tauri::command]
-pub fn volcengine_credentials_clear(state: State<'_, SharedAppState>) -> Result<(), String> {
-    crate::providers::hub::clear_volcengine_credentials(&state.secrets)
-}
 
-#[tauri::command]
-pub fn volcengine_test(state: State<'_, SharedAppState>) -> Result<String, String> {
-    let region = current_settings(&state).providers.volcengine_region.clone();
-    crate::providers::hub::test_volcengine(&state.secrets, &region)
-}
 
 /// All model names seen in the data (for the rate editor's model picker).
 #[tauri::command]
@@ -1049,10 +968,6 @@ pub fn get_active_models(state: State<'_, SharedAppState>) -> Vec<String> {
     inner.store.all_model_names()
 }
 
-#[tauri::command]
-pub fn history_health(state: State<'_, SharedAppState>) -> crate::providers::history::HistoryHealth {
-    state.hub.history_health()
-}
 
 #[tauri::command]
 pub async fn export_data(

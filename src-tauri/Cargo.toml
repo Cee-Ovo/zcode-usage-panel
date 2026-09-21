@@ -1,6 +1,6 @@
 [package]
 name = "zcode-usage-panel"
-version = "1.4.4"
+version = "1.4.5"
 description = "Real-time ZCode Harness token usage monitor"
 authors = ["ZCode Usage Panel contributors"]
 license = "MIT"
@@ -25,7 +25,6 @@ embed-resource = "3"
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-autostart = "2"
-tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
 
 serde = { version = "1", features = ["derive"] }
@@ -38,7 +37,6 @@ ureq = "2.10"
 sha2 = "0.10"
 hmac = "0.12"
 base64 = "0.22"
-keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 windows = { version = "0.58", features = [
     "Win32_Foundation",

@@ -95,8 +95,7 @@ describe("devMock multi-source data", () => {
   it("providers overview includes the Claude Code card without fabricated quota", () => {
     const cc = (mockState.providers ?? []).find((p) => p.provider === "claude-code");
     expect(cc).toBeDefined();
-    expect(cc!.windows).toHaveLength(0);
-    expect(cc!.packages).toHaveLength(0);
-    expect(cc!.localUsage).not.toBeNull();
+    expect(cc!.status).toBe("disabled");
+    expect(cc!.localUsage).toBeNull();
   });
 });

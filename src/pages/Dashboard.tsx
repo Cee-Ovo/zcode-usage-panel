@@ -6,7 +6,6 @@ import { LiquidSegmentedControl } from "../components/LiquidSegmentedControl";
 import { LocalSourceSection } from "../components/LocalSourceSection";
 import { CostDetailModal } from "../components/CostDetailModal";
 import { MetricCard, InfoDot, SpeedTrendLine } from "../components/MetricCard";
-import { QuotaSection } from "../components/QuotaSection";
 import { TrendChart } from "../components/TrendChart";
 import { FxButton, useAction } from "../components/fx";
 import { api } from "../lib/ipc";
@@ -30,7 +29,7 @@ import {
 const HIT_HINT =
   "Cache Hit Rate = cached input ÷ total input(逐条记录自动判定口径:inclusive schema 用 cached/input;exclusive schema 用 cache_read ÷ (input+cache_read+cache_write))。无 cache 字段的数据不计入,显示 unavailable。";
 const TOTAL_HINT =
-  "ZCode 总 Token = Input + Output + Reasoning + Cache(读+写),仅统计 ZCode 本地 usage 记录;\n与 Codex 本地 Token、DSH 本地 Token、服务额度区的官方套餐额度分开统计,互不计入。";
+  "ZCode 总 Token = Input + Output + Reasoning + Cache(读+写),仅统计 ZCode 本地 usage 记录;\n与 Codex 本地 Token、DSH 本地 Token、Claude Code 本地 Token 分开统计,互不计入。";
 
 const SPEED_HINT =
   "首字延迟(TTFT)与 Token 速度均来自 ZCode 本地 model_usage 记录的原始字段,不自行推算。\n" +
@@ -61,8 +60,8 @@ const SECTION_SUBTITLES: Record<SectionKey, string> = {
 
 const CODEX_EXPLAIN =
   "Codex Token = 本地 Codex 客户端 session 日志(含 archived_sessions)中提供的 total_tokens 原值;Cached / Cache Write 作为分项展示,不会重复加到总量中。\n" +
-  "它与「ZCode 总 Token」分开统计、互不计入;与服务额度区的 Codex 官方套餐额度(5 小时/周 rate_limits)也是两个独立指标。\n" +
-  "本地 Token 统计 ≠ 官方剩余额度 ≠ 实际 Billing;速度类指标因日志无时间字段而不可用。";
+  "它与「ZCode 总 Token」分开统计、互不计入;两者是独立的统计口径。\n" +
+  "本地 Token 统计 ≠ 实际 Billing;速度类指标因日志无时间字段而不可用。";
 
 const DSH_EXPLAIN =
   "DSH Token = DeepSeek Harness 本地 session 日志中 assistant 消息的 usage 统计:inputTokens 为未缓存输入,cacheRead / cacheWrite 单列;reasoning 已包含在 Output 中,总量不重复累计。\n" +
@@ -72,7 +71,7 @@ const DSH_EXPLAIN =
 const CLAUDE_EXPLAIN =
   "Claude Code Token = 本地 ~/.claude/projects 转写中 assistant 消息的 usage 统计:Claude 官方口径 input_tokens 不含 cache(读/写单列),总量 = Input + Output + Cache 读 + Cache 写。\n" +
   "同一 message.id 的流式重复行按最后一条快照计数,不会重复累计。\n" +
-  "它与「ZCode 总 Token」分开统计、互不计入;Claude Code 无本地可查的官方套餐额度,本分区不展示任何官方额度;速度类指标因日志无时间字段而不可用。";
+  "它与「ZCode 总 Token」分开统计、互不计入;速度类指标因日志无时间字段而不可用。";
 
 function readStoredSection(): SectionKey {
   try {
@@ -107,7 +106,7 @@ export const DashboardPage = memo(function DashboardPage({ onRangeChange }: { on
         <div>
           <span className="page-eyebrow">USAGE OVERVIEW</span>
           <h1>用量概览</h1>
-          <p>本地用量与服务额度，清晰掌握每一次使用。</p>
+          <p>本地用量，清晰掌握每一次使用。</p>
         </div>
         <span className="source-label"><span aria-hidden="true">▤</span> 本地数据面板</span>
       </header>
@@ -172,9 +171,6 @@ export const DashboardPage = memo(function DashboardPage({ onRangeChange }: { on
           />
         )}
       </div>
-
-      {/* AI service quotas (Codex / Antigravity / Volcengine + ZCode card) */}
-      <QuotaSection />
     </motion.div>
   );
 });
@@ -250,7 +246,6 @@ const ZCodeSection = memo(function ZCodeSection({ compact }: { compact: boolean 
   const trend = useStore((s) => s.trend);
   const visibleModels = useStore((s) => s.trendVisibleModels);
   const costSummary = useStore((s) => s.costSummary);
-  const alerts = useStore((s) => s.alerts);
   const [expanded, setExpanded] = useState(false);
   const [costModalModel, setCostModalModel] = useState<string | null>(null);
 
@@ -389,7 +384,18 @@ const ZCodeSection = memo(function ZCodeSection({ compact }: { compact: boolean 
         />
       </div>
 
-      {/* Codex 本地 Token(独立于 ZCode 指标与官方额度) */}
+      {/* Codex 本地 Token(独立于 ZCode 指标) */}
+      {/* trend — 整行置顶,紧接指标卡 */}
+      <Glass className="panel sample-glass" material="regular" renderer="css">
+        <div className="panel-title">
+          Token 趋势 · {RANGE_LABELS[(trend?.rangeKey ?? rangeKey) as keyof typeof RANGE_LABELS] ?? rangeKey}
+          <span className="right">
+            <InfoDot text="点击模型名可单独显示/隐藏该模型的曲线。" />
+          </span>
+        </div>
+        <TrendChart trend={trend} visibleModels={visibleModels} />
+      </Glass>
+
       {/* top models */}
       <Glass className="panel sample-glass" material="regular" renderer="css">
         <div className="panel-title">
@@ -428,33 +434,6 @@ const ZCodeSection = memo(function ZCodeSection({ compact }: { compact: boolean 
         </AnimatePresence>
       </Glass>
 
-      {/* recent local alerts */}
-      {alerts.length > 0 && (
-        <Glass className="panel sample-glass" material="regular" renderer="css">
-          <div className="panel-title">异常提醒(本地)</div>
-          <AnimatePresence initial={false}>
-            {alerts.slice(0, 3).map((a) => (
-              <motion.div
-                variants={listItemVariants}
-                initial="initial"
-                animate="enter"
-                exit="exit"
-                key={`${a.rule}-${a.tsMs}`}
-                className={`alert-chip ${a.severity >= 2 ? "critical" : ""}`}
-              >
-                <span style={{ fontWeight: 650 }}>{a.title}</span>
-                <span className="muted" style={{ flex: 1 }}>
-                  {a.body}
-                </span>
-                <span className="muted" style={{ fontSize: 10.5 }}>
-                  {formatRelative(a.tsMs)}
-                </span>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </Glass>
-      )}
-
       {/* live session strip */}
       <Glass className="panel sample-glass" material="regular" renderer="css">
         <div className="panel-title">当前 Session</div>
@@ -490,17 +469,6 @@ const ZCodeSection = memo(function ZCodeSection({ compact }: { compact: boolean 
         ) : (
           <div className="muted">暂无活跃 Session(ZCode 未运行时显示最后一次统计)</div>
         )}
-      </Glass>
-
-      {/* trend */}
-      <Glass className="panel sample-glass" material="regular" renderer="css">
-        <div className="panel-title">
-          实时趋势 · {RANGE_LABELS[(trend?.rangeKey ?? rangeKey) as keyof typeof RANGE_LABELS] ?? rangeKey}
-          <span className="right">
-            <InfoDot text="点击模型名可单独显示/隐藏该模型的曲线。" />
-          </span>
-        </div>
-        <TrendChart trend={trend} visibleModels={visibleModels} />
       </Glass>
 
       <AnimatePresence>

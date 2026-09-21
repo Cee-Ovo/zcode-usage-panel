@@ -1,13 +1,11 @@
-//! Provider hub: registry + scheduler for all quota providers.
+//! Provider hub: registry + scheduler for the local data sources.
 //!
 //! One dedicated thread owns provider state. It wakes on the nearest due
-//! time (never busy-loops), polls due providers, records history, evaluates
-//! quota alerts, and emits `provider-update` events. Failure isolation:
+//! time (never busy-loops), polls due providers and emits `provider-update`
+//! events. Failure isolation:
 //! - each provider polls inside its own catch-all; an error produces an
 //!   error snapshot (keeping last-known data) and an exponential backoff,
-//! - the hub itself never panics the process,
-//! - network providers (Volcengine/Antigravity) run with timeouts; while
-//!   the UI is hidden their cadence doubles (alerts still work).
+//! - the hub itself never panics the process.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -16,31 +14,21 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 
 use crate::engine::now_ms;
-use crate::settings::{LauncherSettings, Settings};
+use crate::settings::Settings;
 
-use super::antigravity::{self, InstallPaths, LocalTransport, UreqLocalTransport};
 use super::claude_code::ClaudeCodeProvider;
 use super::codex::CodexProvider;
 use super::dsh::DshProvider;
-use super::history::{HistoryHealth, QuotaHistory};
-use super::quota_alerts::{AlertEvent, AlertMemory, QuotaAlertEngine};
-use super::secrets::{
-    KeyringStorage, MemoryStorage, SecretStorage, SecretErrorKind, KEY_VOLCENGINE_AK,
-    KEY_VOLCENGINE_SK,
-};
 use super::session_index::{
     build_summaries, split_prefixed, PREFIX_CLAUDE_CODE, PREFIX_CODEX, PREFIX_DSH,
 };
-use super::volcengine::{self, UreqTransport};
 use super::zlauncher::{Launcher, PlatformProcOps};
 use super::{
-    LocalUsage, ProviderSnapshot, ProviderStatus, QuotaWindow, TokenBreakdown,
-    PROVIDER_ANTIGRAVITY, PROVIDER_CLAUDE_CODE, PROVIDER_CODEX, PROVIDER_DSH,
-    PROVIDER_VOLCENGINE, PROVIDER_ZCODE,
+    LocalUsage, ProviderSnapshot, ProviderStatus, TokenBreakdown, PROVIDER_CLAUDE_CODE,
+    PROVIDER_CODEX, PROVIDER_DSH, PROVIDER_ZCODE,
 };
 
 /// Aggregate ZCode card data computed from the monitoring engine (local,
@@ -71,21 +59,15 @@ pub struct HubInner {
     pub codex: CodexProvider,
     pub dsh: DshProvider,
     pub claude_code: ClaudeCodeProvider,
-    pub history: QuotaHistory,
-    pub alert_memory: AlertMemory,
-    pub alert_log: Vec<AlertEvent>,
     pub launcher: Launcher<PlatformProcOps>,
-    pub install: InstallPaths,
     failures: HashMap<String, u32>,
     next_due: HashMap<String, i64>,
-    memory_path: Option<PathBuf>,
 }
 
 pub struct ProviderHub {
     pub inner: Arc<Mutex<HubInner>>,
     tx: Sender<HubMsg>,
     app: Arc<OnceLock<tauri::AppHandle>>,
-    engine: Option<crate::engine::Engine>,
     paused: Arc<AtomicBool>,
     zcode_card: Arc<OnceLock<Arc<dyn Fn() -> ZcodeCard + Send + Sync>>>,
 }
@@ -97,7 +79,6 @@ impl Clone for ProviderHub {
             inner: self.inner.clone(),
             tx: self.tx.clone(),
             app: self.app.clone(),
-            engine: self.engine.clone(),
             paused: self.paused.clone(),
             zcode_card: self.zcode_card.clone(),
         }
@@ -108,15 +89,8 @@ const MAX_BACKOFF_SHIFT: u32 = 3; // ≤ 8× base interval
 const HIDDEN_SLOWDOWN: i64 = 2;
 
 impl ProviderHub {
-    pub fn new(cache_dir: Option<PathBuf>, _keyring_service: &str) -> (Self, Receiver<HubMsg>) {
+    pub fn new(cache_dir: Option<PathBuf>) -> (Self, Receiver<HubMsg>) {
         let (tx, rx) = mpsc::channel::<HubMsg>();
-        let history = QuotaHistory::open(cache_dir.as_ref().map(|d| d.join("quota-history.sqlite")).as_deref());
-        let memory_path = cache_dir.clone().map(|d| d.join("alert-memory.json"));
-        let alert_memory = memory_path
-            .as_ref()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default();
         let codex = CodexProvider::new(cache_dir.as_ref().map(|d| d.join("codex-usage-cache.json")));
         let dsh = DshProvider::new(cache_dir.as_ref().map(|d| d.join("dsh-usage-cache.json")));
         let claude_code =
@@ -127,30 +101,17 @@ impl ProviderHub {
             codex,
             dsh,
             claude_code,
-            history,
-            alert_memory,
-            alert_log: Vec::new(),
             launcher,
-            install: InstallPaths::default(),
             failures: HashMap::new(),
-            next_due: [
-                PROVIDER_ZCODE,
-                PROVIDER_CODEX,
-                PROVIDER_DSH,
-                PROVIDER_CLAUDE_CODE,
-                PROVIDER_ANTIGRAVITY,
-                PROVIDER_VOLCENGINE,
-            ]
-            .iter()
-            .map(|k| (k.to_string(), 0))
-            .collect(),
-            memory_path,
+            next_due: [PROVIDER_ZCODE, PROVIDER_CODEX, PROVIDER_DSH, PROVIDER_CLAUDE_CODE]
+                .iter()
+                .map(|k| (k.to_string(), 0))
+                .collect(),
         };
         let hub = ProviderHub {
             inner: Arc::new(Mutex::new(inner)),
             tx,
             app: Arc::new(OnceLock::new()),
-            engine: None,
             paused: Arc::new(AtomicBool::new(false)),
             zcode_card: Arc::new(OnceLock::new()),
         };
@@ -159,10 +120,6 @@ impl ProviderHub {
 
     pub fn set_app(&self, app: tauri::AppHandle) {
         let _ = self.app.set(app);
-    }
-
-    pub fn set_engine(&mut self, engine: crate::engine::Engine) {
-        self.engine = Some(engine);
     }
 
     /// Provider `is_running` access for the paused flag without exposing
@@ -179,26 +136,8 @@ impl ProviderHub {
         let _ = self.tx.send(HubMsg::Kick);
     }
 
-    pub fn refresh_now(&self, provider: Option<String>) {
-        let _ = self.tx.send(HubMsg::RefreshNow(provider));
-    }
-
     pub fn shutdown(&self) {
         let _ = self.tx.send(HubMsg::Shutdown);
-    }
-
-    /// OS keyring for real runs; falls back to memory when the platform has
-    /// no keyring service (headless Linux dev) so providers degrade to
-    /// NotConfigured instead of crashing.
-    pub fn default_secret_store() -> Arc<dyn SecretStorage> {
-        let store = KeyringStorage::new("zcode-usage-panel");
-        // Probe with a write+delete of a dummy entry.
-        let ok = store.set("zup_backend_probe", "1").is_ok() && store.delete("zup_backend_probe").is_ok();
-        if ok {
-            Arc::new(store)
-        } else {
-            Arc::new(MemoryStorage::new())
-        }
     }
 
     // -- background loop ------------------------------------------------------
@@ -207,10 +146,7 @@ impl ProviderHub {
         self,
         rx: Receiver<HubMsg>,
         get_settings: impl Fn() -> Settings + Send + Sync + 'static,
-        secrets: Arc<dyn SecretStorage>,
     ) {
-        let volc_transport = UreqTransport { timeout_secs: 15 };
-        let local_transport = UreqLocalTransport { timeout_secs: 5 };
         // Everything is due immediately (first data fast); the schedule map
         // was seeded in `new`.
         self.kick();
@@ -250,8 +186,6 @@ impl ProviderHub {
                     PROVIDER_CODEX,
                     PROVIDER_DSH,
                     PROVIDER_CLAUDE_CODE,
-                    PROVIDER_ANTIGRAVITY,
-                    PROVIDER_VOLCENGINE,
                 ]
                 .into_iter()
                     .filter(|id| {
@@ -269,7 +203,7 @@ impl ProviderHub {
 
             let mut any_changed = false;
             for id in &due {
-                let changed = self.poll_one(id, &settings, &secrets, &volc_transport, &local_transport, now);
+                let changed = self.poll_one(id, &settings, now);
                 any_changed |= changed;
                 // Backoff-aware reschedule.
                 let (base, failures) = {
@@ -279,8 +213,6 @@ impl ProviderHub {
                         PROVIDER_CODEX => settings.providers.codex_refresh_ms,
                         PROVIDER_DSH => settings.providers.dsh_refresh_ms,
                         PROVIDER_CLAUDE_CODE => settings.providers.claude_code_refresh_ms,
-                        PROVIDER_ANTIGRAVITY => settings.providers.antigravity_refresh_ms,
-                        PROVIDER_VOLCENGINE => settings.providers.volcengine_refresh_ms,
                         _ => 30_000,
                     };
                     (base, failures)
@@ -303,19 +235,9 @@ impl ProviderHub {
                 self.emit_all();
             }
         }
-        // Final persist.
-        self.persist_state();
     }
 
-    fn poll_one(
-        &self,
-        id: &str,
-        settings: &Settings,
-        secrets: &Arc<dyn SecretStorage>,
-        volc_transport: &UreqTransport,
-        local_transport: &dyn LocalTransport,
-        now: i64,
-    ) -> bool {
+    fn poll_one(&self, id: &str, settings: &Settings, now: i64) -> bool {
         let snapshot = match id {
             PROVIDER_CODEX => {
                 if !settings.providers.codex_enabled {
@@ -371,59 +293,6 @@ impl ProviderHub {
                     Some(inner.claude_code.poll(now))
                 }
             }
-            PROVIDER_ANTIGRAVITY => {
-                if !settings.providers.antigravity_enabled {
-                    let mut s = ProviderSnapshot::empty(id, ProviderStatus::Disabled, now);
-                    s.source = "已在本软件设置中禁用".into();
-                    Some(s)
-                } else {
-                    let install = antigravity::detect_installation(None);
-                    Some(antigravity::poll(&install, local_transport, now))
-                }
-            }
-            PROVIDER_VOLCENGINE => {
-                if !settings.providers.volcengine_enabled {
-                    let mut s = ProviderSnapshot::empty(id, ProviderStatus::Disabled, now);
-                    s.source = "已在本软件设置中禁用".into();
-                    Some(s)
-                } else {
-                    let (ak, sk, keyring_err) = match (secrets.get(KEY_VOLCENGINE_AK), secrets.get(KEY_VOLCENGINE_SK)) {
-                        (Ok(a), Ok(s)) => (Some(a), Some(s), None),
-                        (Err(SecretErrorKind::NotFound), _) | (_, Err(SecretErrorKind::NotFound)) => (None, None, None),
-                        (Err(e), _) | (_, Err(e)) => (None, None, Some(e.message().to_string())),
-                    };
-                    match (ak, sk, keyring_err) {
-                        (Some(ak), Some(sk), _) => {
-                            let prov = volcengine::VolcengineProvider {
-                                region: settings.providers.volcengine_region.clone(),
-                                transport: volc_transport,
-                                now: chrono::Utc::now(),
-                            };
-                            let result = prov.list_packages(&ak, &sk);
-                            let filter = settings.providers.volcengine_filter.trim().to_lowercase();
-                            let filtered: Vec<_> = match &result {
-                                Ok(list) => list
-                                    .iter()
-                                    .filter(|p| {
-                                        filter.is_empty()
-                                            || p.name.to_lowercase().contains(&filter)
-                                            || p.configuration.to_lowercase().contains(&filter)
-                                            || p.product.to_lowercase().contains(&filter)
-                                    })
-                                    .cloned()
-                                    .collect(),
-                                Err(_) => vec![],
-                            };
-                            Some(volcengine::build_snapshot(&filtered, now, result.err().as_ref()))
-                        }
-                        (_, _, Some(err)) => {
-                            let e = volcengine::VolcError::Keyring(err);
-                            Some(volcengine::build_snapshot(&[], now, Some(&e)))
-                        }
-                        _ => Some(volcengine::build_snapshot(&[], now, Some(&volcengine::VolcError::NotConfigured))),
-                    }
-                }
-            }
             _ => None, // zcode handled by rebuild_zcode
         };
         let Some(mut snap) = snapshot else { return false };
@@ -436,8 +305,6 @@ impl ProviderHub {
                 // last-known numbers (marked error/stale) instead of blanking.
                 let keep_prev = p.status == ProviderStatus::Ok
                     && snap.status != ProviderStatus::Ok
-                    && snap.windows.is_empty()
-                    && snap.packages.is_empty()
                     && snap.local_usage.is_none();
                 if keep_prev {
                     prev = Some(p.clone());
@@ -446,8 +313,6 @@ impl ProviderHub {
         }
         if let Some(p) = prev {
             // Error after success → preserve data, mark degraded.
-            snap.windows = p.windows;
-            snap.packages = p.packages;
             snap.local_usage = p.local_usage;
             snap.plan_name = p.plan_name;
             snap.account = p.account;
@@ -460,47 +325,13 @@ impl ProviderHub {
         }
 
         let is_error = snap.status == ProviderStatus::Error || snap.status == ProviderStatus::Stale;
-        // Record history + forecasts for successful polls.
-        {
-            let mut inner = self.inner.lock().unwrap();
-            if snap.status == ProviderStatus::Ok {
-                inner.history.record(&snap);
-                inner.history.enrich_with_forecasts(&mut snap, now);
-            }
-            if is_error {
-                *inner.failures.entry(id.to_string()).or_insert(0) += 1;
-            } else {
-                inner.failures.insert(id.to_string(), 0);
-            }
-            inner.snapshots.insert(id.to_string(), snap.clone());
+        let mut inner = self.inner.lock().unwrap();
+        if is_error {
+            *inner.failures.entry(id.to_string()).or_insert(0) += 1;
+        } else {
+            inner.failures.insert(id.to_string(), 0);
         }
-
-        // Alerts (outside the inner lock; they take history separately).
-        if snap.status == ProviderStatus::Ok {
-            let alerts = {
-                let mut inner = self.inner.lock().unwrap();
-                let interval = match id {
-                    PROVIDER_CODEX => settings.providers.codex_refresh_ms,
-                    PROVIDER_DSH => settings.providers.dsh_refresh_ms,
-                    PROVIDER_CLAUDE_CODE => settings.providers.claude_code_refresh_ms,
-                    PROVIDER_ANTIGRAVITY => settings.providers.antigravity_refresh_ms,
-                    PROVIDER_VOLCENGINE => settings.providers.volcengine_refresh_ms,
-                    _ => 30_000,
-                };
-                let hub = &mut *inner;
-                QuotaAlertEngine::evaluate(
-                    &mut hub.alert_memory,
-                    &hub.history,
-                    &snap,
-                    &settings.quota_alerts,
-                    interval,
-                    now,
-                )
-            };
-            if !alerts.is_empty() {
-                self.fire_alerts(alerts);
-            }
-        }
+        inner.snapshots.insert(id.to_string(), snap);
         true
     }
 
@@ -518,13 +349,6 @@ impl ProviderHub {
         if let Some(e) = &card.data_error {
             snap.error = Some(e.clone());
         }
-        snap.windows.push(QuotaWindow {
-            key: "today_tokens".to_string(),
-            label: "今日 Token".to_string(),
-            used_quota: Some(card.today_tokens as f64),
-            unit: Some("tokens".into()),
-            ..Default::default()
-        });
         snap.notes.push(format!("≈ ¥{:.2} API 等价成本(官方单价估算)", card.today_cost_cny));
         if let Some(hit) = card.hit_rate {
             snap.notes.push(format!("Cache Hit Rate {:.1}%", hit * 100.0));
@@ -548,59 +372,8 @@ impl ProviderHub {
             inner.launcher.configure(settings.launcher.exe_path.clone());
             snap.launcher = Some(inner.launcher.status());
         }
-        // Daily cost history point for threshold alerts.
-        {
-            let mut inner = self.inner.lock().unwrap();
-            inner.history.record_daily_cost(
-                crate::zcode::aggregate::local_day_start_ms(now),
-                card.today_cost_cny,
-                now,
-            );
-            let rules = settings.quota_alerts.clone();
-            let cost_alerts = {
-                let hub = &mut *inner;
-                QuotaAlertEngine::evaluate(&mut hub.alert_memory, &hub.history, &snap, &rules, 30_000, now)
-            };
-            inner.snapshots.insert(PROVIDER_ZCODE.into(), snap);
-            drop(inner);
-            if !cost_alerts.is_empty() {
-                self.fire_alerts(cost_alerts);
-            }
-        }
-    }
-
-    fn fire_alerts(&self, alerts: Vec<AlertEvent>) {
-        self.persist_state();
-        if let Some(app) = self.app.get() {
-            use tauri_plugin_notification::NotificationExt;
-            for ev in &alerts {
-                let _ = app.emit("quota-alert", ev);
-                let _ = app.notification().builder().title(&ev.title).body(&ev.body).show();
-            }
-        }
         let mut inner = self.inner.lock().unwrap();
-        for ev in alerts {
-            inner.alert_log.insert(0, ev);
-            if inner.alert_log.len() > 50 {
-                inner.alert_log.pop();
-            }
-        }
-    }
-
-    /// Persist alert bookkeeping (called after mutations and at exit).
-    pub fn persist_state(&self) {
-        let inner = self.inner.lock().unwrap();
-        if let Some(p) = &inner.memory_path {
-            if let Ok(json) = serde_json::to_string(&inner.alert_memory) {
-                if let Some(dir) = p.parent() {
-                    let _ = std::fs::create_dir_all(dir);
-                }
-                let tmp = p.with_extension("tmp");
-                if std::fs::write(&tmp, json).is_ok() {
-                    let _ = std::fs::rename(&tmp, p);
-                }
-            }
-        }
+        inner.snapshots.insert(PROVIDER_ZCODE.into(), snap);
     }
 
     fn emit_all(&self) {
@@ -622,14 +395,9 @@ impl ProviderHub {
             PROVIDER_CODEX => 1,
             PROVIDER_DSH => 2,
             PROVIDER_CLAUDE_CODE => 3,
-            PROVIDER_ANTIGRAVITY => 4,
-            _ => 5,
+            _ => 4,
         });
         v
-    }
-
-    pub fn quota_alert_log(&self) -> Vec<AlertEvent> {
-        self.inner.lock().unwrap().alert_log.clone()
     }
 
     pub fn launcher_action(&self, action: &str, settings: &Settings) -> (String, ProviderSnapshot) {
@@ -662,21 +430,6 @@ impl ProviderHub {
             inner.snapshots.insert(PROVIDER_ZCODE.into(), snap.clone());
         }
         (result, snap)
-    }
-
-    pub fn history_for(&self, provider: &str, window: &str, from_ms: i64, to_ms: i64) -> Vec<super::history::HistoryPoint> {
-        let inner = self.inner.lock().unwrap();
-        inner.history.points(provider, window, from_ms, to_ms)
-    }
-
-    pub fn consumption(&self, provider: &str, window: &str, days: u32, now: i64) -> Vec<(i64, f64)> {
-        let inner = self.inner.lock().unwrap();
-        inner.history.daily_consumption(provider, window, days, now)
-    }
-
-    pub fn history_health(&self) -> HistoryHealth {
-        let inner = self.inner.lock().unwrap();
-        inner.history.health()
     }
 
     // -- unified multi-source session / dashboard queries ---------------------
@@ -818,77 +571,8 @@ impl ProviderHub {
     }
 }
 
-/// One-shot Volcengine connection test for the settings page. Returns a
-/// human result string; never contains credentials.
-pub fn test_volcengine(
-    secrets: &Arc<dyn SecretStorage>,
-    region: &str,
-) -> Result<String, String> {
-    let (ak, sk) = match (secrets.get(KEY_VOLCENGINE_AK), secrets.get(KEY_VOLCENGINE_SK)) {
-        (Ok(a), Ok(s)) => (a, s),
-        (Err(e), _) | (_, Err(e)) => return Err(e.message().to_string()),
-    };
-    let transport = UreqTransport { timeout_secs: 15 };
-    let prov = volcengine::VolcengineProvider {
-        region: region.to_string(),
-        transport: &transport,
-        now: chrono::Utc::now(),
-    };
-    match prov.list_packages(&ak, &sk) {
-        Ok(packages) => {
-            let effective = packages.iter().filter(|p| p.status == "Effective").count();
-            Ok(format!("连接成功:共 {} 个资源包,{} 个生效中", packages.len(), effective))
-        }
-        Err(e) => Err(e.message()),
-    }
-}
-
-/// Credential management used by the settings IPC.
-pub fn set_volcengine_credentials(secrets: &Arc<dyn SecretStorage>, ak: &str, sk: &str) -> Result<(), String> {
-    if ak.trim().is_empty() || sk.trim().is_empty() {
-        return Err("AccessKey / SecretKey 不能为空".into());
-    }
-    secrets.set(KEY_VOLCENGINE_AK, ak.trim()).map_err(|e| e.message().to_string())?;
-    secrets.set(KEY_VOLCENGINE_SK, sk.trim()).map_err(|e| e.message().to_string())?;
-    Ok(())
-}
-
-pub fn clear_volcengine_credentials(secrets: &Arc<dyn SecretStorage>) -> Result<(), String> {
-    let _ = secrets.delete(KEY_VOLCENGINE_AK);
-    secrets.delete(KEY_VOLCENGINE_SK).map_err(|e| e.message().to_string())
-}
-
-pub fn has_volcengine_credentials(secrets: &Arc<dyn SecretStorage>) -> bool {
-    secrets.get(KEY_VOLCENGINE_AK).is_ok() && secrets.get(KEY_VOLCENGINE_SK).is_ok()
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CredentialsStatusDto {
-    pub configured: bool,
-    pub backend: String,
-    /// Masked account hint (first 4 + last 2 of AK), never the full value.
-    pub ak_hint: Option<String>,
-}
-
-pub fn credentials_status(secrets: &Arc<dyn SecretStorage>) -> CredentialsStatusDto {
-    let ak = secrets.get(KEY_VOLCENGINE_AK).ok();
-    let hint = ak.as_ref().map(|a| {
-        if a.len() <= 6 {
-            "***".to_string()
-        } else {
-            format!("{}…{}", &a[..4], &a[a.len() - 2..])
-        }
-    });
-    CredentialsStatusDto {
-        configured: ak.is_some() && secrets.get(KEY_VOLCENGINE_SK).is_ok(),
-        backend: secrets.backend_name().to_string(),
-        ak_hint: hint,
-    }
-}
-
 /// Apply launcher autostart-on-boot preference once at app start.
-pub fn maybe_autostart_zcode(hub: &ProviderHub, launcher: &LauncherSettings) {
+pub fn maybe_autostart_zcode(hub: &ProviderHub, launcher: &crate::settings::LauncherSettings) {
     if !launcher.enabled || !launcher.autostart {
         return;
     }
@@ -904,11 +588,10 @@ mod tests {
     #[test]
     fn hub_schedules_all_providers_initially() {
         let dir = tempfile::tempdir().unwrap();
-        let (hub, rx) = ProviderHub::new(Some(dir.path().to_path_buf()), "test");
+        let (hub, rx) = ProviderHub::new(Some(dir.path().to_path_buf()));
         drop(rx);
         let inner = hub.inner.lock().unwrap();
-        assert_eq!(inner.next_due.len(), 6);
-        assert!(inner.history.schema_version() >= 1);
+        assert_eq!(inner.next_due.len(), 4);
     }
 
     /// End-to-end fixture: one Codex rollout, one DSH log, one Claude Code
@@ -917,7 +600,7 @@ mod tests {
     #[test]
     fn local_session_queries_serve_all_three_sources() {
         let dir = tempfile::tempdir().unwrap();
-        let (hub, _rx) = ProviderHub::new(Some(dir.path().to_path_buf()), "test");
+        let (hub, _rx) = ProviderHub::new(Some(dir.path().to_path_buf()));
         let root = dir.path().to_path_buf();
 
         // Timestamps are computed from the real clock so range resolution
@@ -1048,28 +731,5 @@ mod tests {
         assert_eq!(codex_view.dash.agg.total_tokens(), 1114);
         assert_eq!(codex_view.dash.models[0].name, "gpt-5.6-sol");
         assert!(codex_view.trend.is_none());
-    }
-
-    #[test]
-    fn credentials_roundtrip_is_masked() {
-        let secrets: Arc<dyn SecretStorage> = Arc::new(MemoryStorage::new());
-        assert!(!has_volcengine_credentials(&secrets));
-        set_volcengine_credentials(&secrets, "AKIAexample123456", "sk-secret-value").unwrap();
-        assert!(has_volcengine_credentials(&secrets));
-        let st = credentials_status(&secrets);
-        assert!(st.configured);
-        let hint = st.ak_hint.unwrap();
-        assert!(hint.starts_with("AKIA"));
-        assert!(!hint.contains("example123456"[4..].to_string().as_str()) || hint.len() < 20);
-        // Full values never appear in any status field.
-        assert_ne!(hint, "AKIAexample123456");
-        clear_volcengine_credentials(&secrets).unwrap();
-        assert!(!has_volcengine_credentials(&secrets));
-    }
-
-    #[test]
-    fn empty_credentials_rejected() {
-        let secrets: Arc<dyn SecretStorage> = Arc::new(MemoryStorage::new());
-        assert!(set_volcengine_credentials(&secrets, "", "sk").is_err());
     }
 }

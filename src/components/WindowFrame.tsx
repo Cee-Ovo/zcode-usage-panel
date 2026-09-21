@@ -28,21 +28,19 @@ export function TitleBar({
   return (
     <div className="zup-titlebar" data-tauri-drag-region>
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
-        <defs>
-          <linearGradient id="zup-logo" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#7fd4ff" />
-            <stop offset="1" stopColor="#2f7bf6" />
-          </linearGradient>
-        </defs>
-        <rect x="1.5" y="1.5" width="13" height="13" rx="4" fill="url(#zup-logo)" opacity="0.9" />
-        <path
-          d="M5 5.4h6L5 10.6h6"
-          fill="none"
-          stroke="#fff"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
+        {/* 品牌标记与应用图标同形：墨色圆角方底 + 三根递增纸白柱。
+            用纸感主题 token 取色，暗色主题下自动反转。 */}
+        <rect
+          x="1"
+          y="1"
+          width="14"
+          height="14"
+          rx="4.5"
+          fill="var(--paper-ink, #1c1c1e)"
         />
+        <rect x="2.9" y="8.4" width="2.4" height="3.8" rx="1.2" fill="var(--paper-page, #fafaf8)" />
+        <rect x="6.8" y="6.6" width="2.4" height="5.6" rx="1.2" fill="var(--paper-page, #fafaf8)" />
+        <rect x="10.7" y="4.8" width="2.4" height="7.4" rx="1.2" fill="var(--paper-page, #fafaf8)" />
       </svg>
       <span className="title" data-tauri-drag-region>
         {title}

@@ -692,9 +692,6 @@ mod tests {
         assert_eq!(lu.all_time.total_tokens, 100 + 50 + 700 + 30);
         assert_eq!(lu.sessions, 1);
         assert_eq!(lu.models[0].model, "claude-sonnet-5");
-        // No official quota is invented for Claude Code.
-        assert!(snap.windows.is_empty());
-        assert!(snap.packages.is_empty());
     }
 
     #[test]

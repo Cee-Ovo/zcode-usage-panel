@@ -20,7 +20,6 @@ use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 
 use notify::Watcher;
-use crate::alerts::{AlertEngine, AlertEvent};
 use crate::settings::Settings;
 use crate::zcode::aggregate::{self, Agg, ModelStat, SessionSummary};
 use crate::zcode::discover::{self, DataLayout};
@@ -118,11 +117,8 @@ pub struct EngineInner {
     last_meta_refresh: Option<Instant>,
     busy_until_ms: Option<i64>,
     pub boot: Option<BootSnapshot>,
-    pub alerts: AlertEngine,
-    pub alert_log: Vec<AlertEvent>,
     last_emit: Option<Instant>,
     last_discover: Option<Instant>,
-    last_alert_check: Option<Instant>,
 }
 
 #[derive(Clone)]
@@ -155,11 +151,8 @@ impl Engine {
                 last_meta_refresh: None,
                 busy_until_ms: None,
                 boot: None,
-                alerts: AlertEngine::new(),
-                alert_log: Vec::new(),
                 last_emit: None,
                 last_discover: None,
-                last_alert_check: None,
             })),
             tx,
             app: Arc::new(OnceLock::new()),
@@ -350,7 +343,6 @@ impl Engine {
         let mut errors: Vec<String> = Vec::new();
         let mut busy = false;
         let mut changed = false;
-        let mut new_alerts: Vec<AlertEvent> = Vec::new();
         let mut payload: Option<UsageUpdateEvent> = None;
 
         {
@@ -534,25 +526,6 @@ impl Engine {
                 inner.store.restored_from_cache = false;
             }
 
-            // Anomaly detection after data changes, and at least once a
-            // minute so time-based rules (data staleness) can fire even
-            // when nothing changed.
-            let alert_check_due = inner
-                .last_alert_check
-                .map(|t| t.elapsed() > Duration::from_secs(60))
-                .unwrap_or(true);
-            if changed || alert_check_due {
-                inner.last_alert_check = Some(Instant::now());
-                let inner = &mut *inner;
-                new_alerts = inner.alerts.evaluate(&mut inner.store, &settings.notifications, now);
-                for ev in &new_alerts {
-                    inner.alert_log.insert(0, ev.clone());
-                    if inner.alert_log.len() > 50 {
-                        inner.alert_log.pop();
-                    }
-                }
-            }
-
             // Emit "usage-update" at most ~2×/s.
             let emit_now = changed
                 || inner
@@ -575,18 +548,8 @@ impl Engine {
         } // lock released
 
         if let Some(app) = self.app.get() {
-            use tauri_plugin_notification::NotificationExt;
             if let Some(p) = &payload {
                 let _ = app.emit("usage-update", p);
-            }
-            for ev in &new_alerts {
-                let _ = app.emit("alert", ev);
-                let _ = app
-                    .notification()
-                    .builder()
-                    .title(ev.title.clone())
-                    .body(ev.body.clone())
-                    .show();
             }
         }
     }

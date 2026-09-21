@@ -6,7 +6,6 @@ import "./styles/global.css";
 import "./styles/liquid-surfaces.css";
 import { App } from "./App";
 import "./styles/refinement.css";
-import "./styles/provider-refinement.css";
 import "./styles/frosted-sample.css";
 import { store, type AppState } from "./lib/store";
 import "./styles/paper-theme.css";

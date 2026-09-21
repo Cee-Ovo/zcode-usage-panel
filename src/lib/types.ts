@@ -135,12 +135,6 @@ export interface SessionDetailDto {
   models: ModelStat[];
 }
 
-export interface HistoryHealth {
-  persistent: boolean;
-  error: string | null;
-  lastSuccessMs: number | null;
-}
-
 export interface ModelDetailDto {
   name: string;
   /** Source the numbers came from: `zcode` or a local provider id. */
@@ -188,14 +182,6 @@ export interface DiagnoseDto {
   }[];
 }
 
-export interface AlertEvent {
-  rule: string;
-  severity: number;
-  title: string;
-  body: string;
-  tsMs: number;
-}
-
 export interface UsageUpdateEvent {
   recordCount: number;
   lastRefreshMs: number | null;
@@ -223,17 +209,6 @@ export interface SnapSettings {
   sides: SnapSides;
 }
 
-export interface AlertRuleState {
-  enabled: boolean;
-  spikeMultiplier: number;
-  spikeMinTokens: number;
-  sessionTotalTokens: number;
-  cacheHitDrop: number;
-  cacheMinRequests: number;
-  modelBurstPer5m: number;
-  stalenessMinutes: number;
-}
-
 export interface WindowState {
   x: number;
   y: number;
@@ -255,11 +230,9 @@ export interface Settings {
   autostart: boolean;
   pricingRemoteUrl: string | null;
   snap: SnapSettings;
-  notifications: AlertRuleState;
   window: WindowState;
   providers: ProviderSettings;
   launcher: LauncherSettings;
-  quotaAlerts: QuotaAlertRules;
 }
 
 export interface ProviderSettings {
@@ -272,25 +245,12 @@ export interface ProviderSettings {
   claudeCodeEnabled: boolean;
   claudeCodeHome: string | null;
   claudeCodeRefreshMs: number;
-  antigravityEnabled: boolean;
-  antigravityRefreshMs: number;
-  volcengineEnabled: boolean;
-  volcengineRefreshMs: number;
-  volcengineRegion: string;
-  volcengineFilter: string;
 }
 
 export interface LauncherSettings {
   enabled: boolean;
   exePath: string | null;
   autostart: boolean;
-}
-
-export interface QuotaAlertRules {
-  enabled: boolean;
-  thresholds: number[];
-  packageExpiryDays: number;
-  dailyCostCny: number;
 }
 
 export interface BootstrapDto {
@@ -407,7 +367,7 @@ export interface OverrideDto {
 }
 
 
-// ---- multi-provider quota dashboard (providers/*) ---------------------------
+// ---- provider snapshots (status + local usage for the local sources) ----
 
 export type ProviderStatus =
   | "ok"
@@ -416,42 +376,6 @@ export type ProviderStatus =
   | "disabled"
   | "stale"
   | "error";
-
-export interface Forecast {
-  etaMs: number;
-  ratePerDay: number;
-  samples: number;
-  confidence: "low" | "medium" | "high" | string;
-}
-
-export interface QuotaWindow {
-  key: string;
-  label: string;
-  usedPercent: number | null;
-  totalQuota: number | null;
-  usedQuota: number | null;
-  remainingQuota: number | null;
-  unit: string | null;
-  resetAtMs: number | null;
-  windowMinutes: number | null;
-  forecast: Forecast | null;
-}
-
-export interface PackageInfo {
-  instanceNo: string;
-  name: string;
-  configuration: string;
-  product: string;
-  totalAmount: number;
-  availableAmount: number;
-  usedAmount: number;
-  unit: string;
-  unitMultiplier: number;
-  effectiveMs: number | null;
-  expiryMs: number | null;
-  status: string;
-  usagePercent: number | null;
-}
 
 export interface TokenBreakdown {
   requests: number;
@@ -496,8 +420,6 @@ export interface ProviderSnapshot {
   status: ProviderStatus;
   account: string | null;
   planName: string | null;
-  windows: QuotaWindow[];
-  packages: PackageInfo[];
   localUsage: LocalUsage | null;
   launcher: LauncherStatus | null;
   source: string;
@@ -507,50 +429,10 @@ export interface ProviderSnapshot {
   updatedAtMs: number;
   nextPollMs: number;
 }
-
-export interface QuotaAlertEvent {
-  rule: string;
-  severity: number;
-  title: string;
-  body: string;
-  tsMs: number;
-}
-
-export interface HistoryPointDto {
-  tsMs: number;
-  usedPercent: number | null;
-  used: number | null;
-  remaining: number | null;
-}
-
 export interface LauncherActionDto {
   result: string;
   snapshot: ProviderSnapshot;
 }
-
-export interface CredentialsStatusDto {
-  configured: boolean;
-  backend: string;
-  akHint: string | null;
-}
-
-export const PROVIDER_LABELS: Record<string, string> = {
-  zcode: "ZCode",
-  codex: "Codex",
-  dsh: "DSH",
-  "claude-code": "Claude Code",
-  antigravity: "Antigravity",
-  volcengine: "火山引擎",
-};
-
-export const PROVIDER_STATUS_LABELS: Record<ProviderStatus, string> = {
-  ok: "正常",
-  not_configured: "未配置",
-  not_installed: "未安装",
-  disabled: "已禁用",
-  stale: "数据过期",
-  error: "查询失败",
-};
 
 export const RANGE_KEYS = ["today", "60m", "24h", "7d", "30d", "all"] as const;
 export type RangeKey = (typeof RANGE_KEYS)[number];

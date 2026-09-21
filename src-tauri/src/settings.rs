@@ -8,8 +8,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::providers::quota_alerts::QuotaAlertRules;
-
 pub const DEFAULT_SNAP_SIDES: SnapSides = SnapSides {
     left: true,
     right: true,
@@ -55,41 +53,6 @@ impl Default for SnapSettings {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", default)]
-pub struct AlertRuleState {
-    pub enabled: bool,
-    /// Token surge: 10-minute total exceeds `multiplier` × the trailing
-    /// hour's 10-minute average (and at least `min_tokens`).
-    pub spike_multiplier: f64,
-    pub spike_min_tokens: u64,
-    /// Single-session total threshold (tokens).
-    pub session_total_tokens: u64,
-    /// Cache hit drop: recent hit rate falls this far below the trailing
-    /// baseline (0.25 = 25 points).
-    pub cache_hit_drop: f64,
-    pub cache_min_requests: u64,
-    /// Model burst: N requests for one model within 5 minutes.
-    pub model_burst_per_5m: u64,
-    /// Data staleness: no new records for N minutes.
-    pub staleness_minutes: u64,
-}
-
-impl Default for AlertRuleState {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            spike_multiplier: 8.0,
-            spike_min_tokens: 2_000_000,
-            session_total_tokens: 50_000_000,
-            cache_hit_drop: 0.25,
-            cache_min_requests: 20,
-            model_burst_per_5m: 400,
-            staleness_minutes: 120,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct WindowState {
@@ -104,7 +67,6 @@ pub struct WindowState {
 }
 
 /// Per-provider switches + cadences. Secrets are NOT here — they live in the
-/// OS keyring (see providers/secrets.rs).
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ProviderSettings {
@@ -121,13 +83,6 @@ pub struct ProviderSettings {
     /// `$CLAUDE_CONFIG_DIR` honored).
     pub claude_code_home: Option<String>,
     pub claude_code_refresh_ms: u64,
-    pub antigravity_enabled: bool,
-    pub antigravity_refresh_ms: u64,
-    pub volcengine_enabled: bool,
-    pub volcengine_refresh_ms: u64,
-    pub volcengine_region: String,
-    /// Optional substring filter for package names (empty = show all).
-    pub volcengine_filter: String,
 }
 
 impl Default for ProviderSettings {
@@ -142,12 +97,6 @@ impl Default for ProviderSettings {
             claude_code_enabled: true,
             claude_code_home: None,
             claude_code_refresh_ms: crate::providers::cadence::CLAUDE_CODE_MS,
-            antigravity_enabled: true,
-            antigravity_refresh_ms: crate::providers::cadence::ANTIGRAVITY_MS,
-            volcengine_enabled: true,
-            volcengine_refresh_ms: crate::providers::cadence::VOLCENGINE_MS,
-            volcengine_region: crate::providers::volcengine::DEFAULT_REGION.into(),
-            volcengine_filter: String::new(),
         }
     }
 }
@@ -189,12 +138,10 @@ pub struct Settings {
     /// Pulled on a background thread when set.
     pub pricing_remote_url: Option<String>,
     pub snap: SnapSettings,
-    pub notifications: AlertRuleState,
     pub window: WindowState,
-    /// Multi-provider quota dashboard (added v1.2; defaults keep old files valid).
+    /// Local data sources (added v1.2; defaults keep old files valid).
     pub providers: ProviderSettings,
     pub launcher: LauncherSettings,
-    pub quota_alerts: QuotaAlertRules,
 }
 
 impl Default for Settings {
@@ -210,11 +157,9 @@ impl Default for Settings {
             autostart: false,
             pricing_remote_url: None,
             snap: SnapSettings::default(),
-            notifications: AlertRuleState::default(),
             window: WindowState::default(),
             providers: ProviderSettings::default(),
             launcher: LauncherSettings::default(),
-            quota_alerts: QuotaAlertRules::default(),
         }
     }
 }

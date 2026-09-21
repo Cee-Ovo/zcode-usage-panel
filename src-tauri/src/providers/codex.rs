@@ -38,7 +38,7 @@ use serde::{Deserialize, Serialize};
 use super::local_usage::{
     aggregate_local, delta_record, FileEntry, SessionUsage, TotalTokenUsage, CODEX_DELTA,
 };
-use super::{ProviderSnapshot, ProviderStatus, QuotaWindow};
+use super::{ProviderSnapshot, ProviderStatus};
 
 // v4: per-record `duration_ms` derived from event timestamps (input item →
 // last output item) — older caches hold records without it and are only
@@ -191,7 +191,7 @@ impl CodexProvider {
             return snap;
         }
 
-        let (email, jwt_plan) = read_account_claims(&self.home.join("auth.json"));
+        let (email, _jwt_plan) = read_account_claims(&self.home.join("auth.json"));
         if let Some(email) = &email {
             snap.account = Some(email.clone());
         } else {
@@ -248,39 +248,9 @@ impl CodexProvider {
             now_ms,
         ));
 
-        if let Some((ts_ms, rl)) = self.cache.last_rate_limits.clone() {
-            if let Some(p) = &rl.primary {
-                snap.windows.push(window_from(p, "5h", "5 小时窗口"));
-            }
-            if let Some(s) = &rl.secondary {
-                snap.windows.push(window_from(s, "weekly", "周额度"));
-            }
-            snap.plan_name = rl
-                .plan_type
-                .clone()
-                .or(jwt_plan)
-                .map(|p| format!("ChatGPT {p}"));
-            if let Some(credits) = &rl.credits {
-                if let Some(true) = credits.get("has_credits").and_then(|v| v.as_bool()) {
-                    if let Some(balance) = credits.get("balance").and_then(|v| v.as_str()) {
-                        snap.notes.push(format!(
-                            "Credits 余额:{balance}(API 抵扣额度,与套餐额度独立)"
-                        ));
-                    }
-                }
-            }
-            let age_min = now_ms.saturating_sub(ts_ms) / 60_000;
-            snap.notes.push(format!(
-                "额度来自 Codex 官方 rate_limits,{age_min} 分钟前更新(Codex 发起请求时刷新)"
-            ));
-            if now_ms.saturating_sub(ts_ms) > 6 * 3600_000 {
-                snap.status = ProviderStatus::Stale;
-            }
-        } else if snap.status == ProviderStatus::Ok {
-            snap.status = ProviderStatus::NotConfigured;
-            snap.error =
-                Some("尚未从本地 session 获取到官方额度(用 Codex 发起一次对话后即可)".into());
-        }
+        // 官方套餐额度(rate_limits)不再展示:本应用只统计本地 token 用量。
+        // 解析仍保留在缓存里,便于未来需要时恢复,不影响任何当前路径。
+        let _ = &self.cache.last_rate_limits;
 
         if changed {
             self.persist_cache();
@@ -310,18 +280,6 @@ fn fallback_session_id(path: &Path) -> String {
         .map(|s| s.to_string_lossy().into_owned())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "codex-session".to_string())
-}
-
-fn window_from(w: &RateLimitWindow, key: &str, label: &str) -> QuotaWindow {
-    QuotaWindow {
-        key: key.into(),
-        label: label.into(),
-        used_percent: w.used_percent,
-        unit: Some("% 套餐额度".into()),
-        reset_at_ms: w.resets_at.filter(|t| *t > 0).map(|t| t * 1000),
-        window_minutes: w.window_minutes,
-        ..Default::default()
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -843,12 +801,6 @@ mod tests {
         assert_eq!(lu.all_time.input_tokens, 1000);
         assert_eq!(lu.sessions, 1);
         assert_eq!(lu.models[0].model, "gpt-5.6-sol");
-        assert_eq!(snap.windows.len(), 2);
-        assert!((snap.windows[0].used_percent.unwrap() - 8.0).abs() < 1e-9);
-        assert_eq!(snap.windows[0].reset_at_ms, Some(1_788_025_458_000));
-        assert_eq!(snap.windows[0].window_minutes, Some(300));
-        assert_eq!(snap.plan_name.as_deref(), Some("ChatGPT plus"));
-        assert!(snap.notes.iter().any(|n| n.contains("1000")));
     }
 
     #[test]
@@ -919,22 +871,6 @@ mod tests {
     }
 
     #[test]
-    fn stale_rate_limits_flag() {
-        let (_dir, home) = tmp_home();
-        write_rollout(
-            &home,
-            "rollout-d.jsonl",
-            &[meta_line(), rate_line(5.0, 1788025458, "plus")],
-        );
-        let mut p = CodexProvider::new(None);
-        p.with_home(home.clone());
-        // 10 h after the rate_limits timestamp → stale
-        let snap = p.poll(1_788_030_000_000 + 10 * 3600_000);
-        assert_eq!(snap.status, ProviderStatus::Stale);
-        assert_eq!(snap.windows.len(), 2);
-    }
-
-    #[test]
     fn cache_persists_and_reloads() {
         let dir = tempfile::tempdir().unwrap();
         let cache_path = dir.path().join("codex-cache.json");
@@ -952,14 +888,12 @@ mod tests {
         let mut p = CodexProvider::new(Some(cache_path.clone()));
         p.with_home(home.clone());
         let snap = p.poll(1_788_030_000_000);
-        assert_eq!(snap.windows.len(), 2);
         assert!(cache_path.exists());
 
         // A second provider (fresh process) reloads quota instantly from cache.
         let mut q = CodexProvider::new(Some(cache_path));
         q.with_home(home);
         let snap2 = q.poll(1_788_030_000_000);
-        assert_eq!(snap2.windows.len(), 2);
         assert_eq!(snap2.local_usage.unwrap().all_time.total_tokens, 124);
     }
 
@@ -1184,21 +1118,4 @@ mod tests {
         assert!(decode_jwt_claims("a.b").is_null());
     }
 
-    #[test]
-    fn freshest_rate_limits_wins_across_files() {
-        let (_dir, home) = tmp_home();
-        write_rollout(
-            &home,
-            "rollout-g1.jsonl",
-            &[meta_line(), rate_line(10.0, 1788025458, "plus")],
-        );
-        let newer = rate_line(30.0, 1788025999, "pro").replace("13:44:00", "13:50:00");
-        write_rollout(&home, "rollout-g2.jsonl", &[meta_line(), newer]);
-        let mut p = CodexProvider::new(None);
-        p.with_home(home);
-        let snap = p.poll(1_788_030_000_000);
-        let five = snap.windows.iter().find(|w| w.key == "5h").unwrap();
-        assert!((five.used_percent.unwrap() - 30.0).abs() < 1e-9);
-        assert_eq!(snap.plan_name.as_deref(), Some("ChatGPT pro"));
-    }
 }

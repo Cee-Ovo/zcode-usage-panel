@@ -3,13 +3,11 @@
 
 import { useSyncExternalStore } from "react";
 import type {
-  AlertEvent,
   CostSummaryDto,
   DashboardDto,
   DiagnoseDto,
   ModelDetailDto,
   ProviderSnapshot,
-  QuotaAlertEvent,
   SessionDetailDto,
   SessionSummary,
   Settings,
@@ -38,11 +36,9 @@ export interface AppState {
   sessions: SessionSummary[];
   sessionDetail: SessionDetailDto | null;
   modelDetail: ModelDetailDto | null;
-  alerts: AlertEvent[];
   update: UsageUpdateEvent | null;
   diagnosis: DiagnoseDto | null;
   providers: ProviderSnapshot[];
-  quotaAlerts: QuotaAlertEvent[];
   refresh: RefreshState;
   /** Unified monitoring health — the ONLY source for status dots/pills. */
   health: HealthView;
@@ -64,11 +60,9 @@ const initial: AppState = {
   sessions: [],
   sessionDetail: null,
   modelDetail: null,
-  alerts: [],
   update: null,
   diagnosis: null,
   providers: [],
-  quotaAlerts: [],
   refresh: {
     loading: false,
     pending: false,

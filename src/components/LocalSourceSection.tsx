@@ -32,7 +32,7 @@ import {
  * `get_local_usage_view`:
  * - 指标能算就显示,源里没有的字段(如 TTFT / 响应速度)诚实 unavailable;
  * - 费用为官方 API 单价估算(复用项目价格表),非实际 Billing;
- * - 本地 Token 与 ZCode 总 Token、官方套餐额度互不计入。
+ * - 本地 Token 与 ZCode 总 Token 互不计入。
  *
  * ZCode 分区本身不由此组件渲染(其内容/数值/布局保持冻结);本组件是
  * 三个本地分区的共享实现,分区之间除数据源外完全一致。

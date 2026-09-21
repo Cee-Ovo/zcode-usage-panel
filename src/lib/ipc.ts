@@ -1,26 +1,21 @@
 /** Typed wrappers around Tauri IPC. */
 
 import type {
-  AlertEvent,
   BootstrapDto,
   CostDetailDto,
   CostSummaryDto,
-  CredentialsStatusDto,
   DashboardDto,
   DiagnoseDto,
-  HistoryPointDto,
   LauncherActionDto,
   ModelDetailDto,
   OverrideDto,
   PricingRefreshResultDto,
   PricingTableDto,
   ProviderSnapshot,
-  QuotaAlertEvent,
   SessionDetailDto,
   SessionSummary,
   SessionsPageDto,
   SessionSort,
-  HistoryHealth,
   Settings,
   TrendDto,
   UsageUpdateEvent,
@@ -52,7 +47,6 @@ export const api = {
   /** `provider` scopes the lookup to one source (`zcode` by default). */
   modelDetail: (name: string, provider?: string) =>
     invoke<ModelDetailDto | null>("get_model_detail", { name, provider }),
-  alerts: () => invoke<AlertEvent[]>("get_alerts"),
   activeModels: () => invoke<string[]>("get_active_models"),
   saveSettings: (settings: Settings) => invoke<Settings>("set_settings", { newSettings: settings }),
   diagnose: () => invoke<DiagnoseDto>("diagnose"),
@@ -64,7 +58,6 @@ export const api = {
   dockInteract: (active: boolean) => invoke<void>("dock_interact", { active }),
   popupClose: () => invoke<void>("popup_close"),
   quitApp: () => invoke<void>("quit_app"),
-  historyHealth: () => invoke<HistoryHealth>("history_health"),
 
   // ---- official-API cost estimation ----
   costSummary: (rangeKey: string) =>
@@ -76,25 +69,11 @@ export const api = {
   pricingOverride: (model: string, o: OverrideDto | null) =>
     invoke<PricingTableDto>("pricing_override", { model, o }),
 
-  // ---- multi-provider quota dashboard ----
+  // ---- provider snapshots (drives local-source refresh nudges) ----
   providersOverview: () => invoke<ProviderSnapshot[]>("providers_overview"),
-  providersRefresh: (provider?: string) =>
-    invoke<void>("providers_refresh", { provider: provider ?? null }),
-  quotaAlertsList: () => invoke<QuotaAlertEvent[]>("quota_alerts_list"),
-  providersHistory: (provider: string, window: string, range: string) =>
-    invoke<HistoryPointDto[]>("providers_history", { provider, window, range }),
-  providersConsumption: (provider: string, window: string, days: number) =>
-    invoke<[number, number][]>("providers_consumption", { provider, window, days }),
   zcodeStatus: () => invoke<ProviderSnapshot>("zcode_status"),
   zcodeLaunch: () => invoke<LauncherActionDto>("zcode_launch"),
   zcodeReveal: () => invoke<LauncherActionDto>("zcode_reveal"),
-  volcengineCredentialsStatus: () =>
-    invoke<CredentialsStatusDto>("volcengine_credentials_status"),
-  volcengineCredentialsSet: (ak: string, sk: string) =>
-    invoke<void>("volcengine_credentials_set", { ak, sk }),
-  volcengineCredentialsClear: () =>
-    invoke<void>("volcengine_credentials_clear"),
-  volcengineTest: () => invoke<string>("volcengine_test"),
 };
 
 /** Subscribe to a backend event; returns an unlisten function. */

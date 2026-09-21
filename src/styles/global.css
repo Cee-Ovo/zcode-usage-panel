@@ -574,21 +574,6 @@ body {
   margin-bottom: 18px;
 }
 
-.alert-chip {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--zup-warn) 8%, transparent);
-  margin-bottom: 8px;
-  font-size: 12px;
-}
-
-.alert-chip.critical {
-  background: color-mix(in srgb, var(--zup-danger) 9%, transparent);
-}
-
 .model-chip {
   display: inline-flex;
   align-items: center;

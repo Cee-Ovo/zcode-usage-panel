@@ -630,15 +630,6 @@ export const mockState: Partial<AppState> = {
       agg: mkAgg(0.06),
     },
   ] satisfies SessionSummary[],
-  alerts: [
-    {
-      rule: "spike",
-      severity: 1,
-      title: "10 分钟激增",
-      body: "近 10 分钟消耗 3.2M tokens(基线均值的 4.1 倍)",
-      tsMs: now - 20 * 60_000,
-    },
-  ],
   update: {
     recordCount: 18_402,
     lastRefreshMs: now - 4_000,
@@ -655,21 +646,6 @@ export const mockState: Partial<AppState> = {
       status: "ok",
       account: null,
       planName: null,
-      windows: [
-        {
-          key: "today_tokens",
-          label: "今日",
-          usedPercent: null,
-          totalQuota: null,
-          usedQuota: 12_810_000,
-          remainingQuota: null,
-          unit: "tokens",
-          resetAtMs: null,
-          windowMinutes: null,
-          forecast: null,
-        },
-      ],
-      packages: [],
       localUsage: null,
       launcher: {
         state: "running",
@@ -688,53 +664,21 @@ export const mockState: Partial<AppState> = {
       provider: "codex",
       status: "ok",
       account: "dev@example.com",
-      planName: "ChatGPT Plus",
-      windows: [
-        {
-          key: "5h",
-          label: "5 小时窗口",
-          usedPercent: 41,
-          totalQuota: null,
-          usedQuota: null,
-          remainingQuota: null,
-          unit: "% 套餐额度",
-          resetAtMs: now + 2.2 * hour,
-          windowMinutes: 300,
-          forecast: null,
-        },
-        {
-          key: "weekly",
-          label: "周额度",
-          usedPercent: 63,
-          totalQuota: null,
-          usedQuota: null,
-          remainingQuota: null,
-          unit: "% 套餐额度",
-          resetAtMs: now + 3.4 * 24 * hour,
-          windowMinutes: null,
-          forecast: {
-            etaMs: 2.6 * 24 * hour,
-            ratePerDay: 11.4,
-            samples: 6,
-            confidence: "low",
-          },
-        },
-      ],
-      packages: [],
+      planName: null,
       localUsage: {
         today: codexToday,
         last7d: codex7d,
         allTime: codexAll,
-        sessions: 132,
-        models: mockCodexModels(codexAll),
+        sessions: 128,
+        models: mockCodexModels(codexToday),
         ranges: mockCodexRanges,
       },
       launcher: null,
-      source: "Codex 本地 session 文件(离线)",
-      sourceUrl: "https://developers.openai.com/codex/rate-limits",
-      notes: ["额度与本地用量来自不同数据源,相互独立。"],
+      source: "Codex 本地 session 日志",
+      sourceUrl: null,
+      notes: [],
       error: null,
-      updatedAtMs: now - 12_000,
+      updatedAtMs: now - 9_000,
       nextPollMs: now + 120_000,
     },
     {
@@ -742,91 +686,34 @@ export const mockState: Partial<AppState> = {
       status: "ok",
       account: null,
       planName: null,
-      windows: [],
-      packages: [],
-      localUsage: dshMissing
-        ? null
-        : {
-            today: dshToday,
-            last7d: dsh7d,
-            allTime: dshAll,
-            sessions: 96,
-            models: mockDshModels(dshAll),
-            ranges: mockDshRanges,
-          },
+      localUsage: {
+        today: dshToday,
+        last7d: dsh7d,
+        allTime: dshAll,
+        sessions: 36,
+        models: mockDshModels(dshToday),
+        ranges: mockDshRanges,
+      },
       launcher: null,
-      source: "DeepSeek Harness 本地 session 日志(离线读取)",
-      sourceUrl: "https://www.deepseek.com/harness/",
-      notes: dshMissing
-        ? []
-        : ["reasoning 已含在 Output 中,总量不重复累计。", "session 日志统计 · 不计入 ZCode 总 Token"],
-      error: dshMissing
-        ? "未检测到 DeepSeek Harness 数据目录(默认 ~/.dsh;可在「设置 → DSH」指定路径)"
-        : null,
-      updatedAtMs: now - 18_000,
-      nextPollMs: now + 60_000,
-    },
-    {
-      // Claude Code:无本地可查的官方套餐额度 → 只有本地日志统计,不编造额度。
-      provider: "claude-code",
-      status: ccMissing ? "not_installed" : "ok",
-      account: null,
-      planName: null,
-      windows: [],
-      packages: [],
-      localUsage: ccMissing
-        ? null
-        : {
-            today: scaleCodexBreakdown(claudeBase, 0.14),
-            last7d: scaleCodexBreakdown(claudeBase, 0.55),
-            allTime: claudeBase,
-            sessions: 158,
-            models: [
-              { model: "claude-sonnet-5", breakdown: scaleCodexBreakdown(claudeBase, 0.71) },
-              { model: "claude-opus-5", breakdown: scaleCodexBreakdown(claudeBase, 0.22) },
-              { model: "claude-haiku-5", breakdown: scaleCodexBreakdown(claudeBase, 0.07) },
-            ],
-            ranges: (["today", "60m", "24h", "7d", "30d", "all"] as const).map((key) => ({
-              key,
-              breakdown: scaleCodexBreakdown(claudeBase, RANGE_SCALE[key]),
-              sessions: Math.max(1, Math.round(158 * RANGE_SCALE[key])),
-              models: [
-                { model: "claude-sonnet-5", breakdown: scaleCodexBreakdown(claudeBase, 0.71 * RANGE_SCALE[key]) },
-                { model: "claude-opus-5", breakdown: scaleCodexBreakdown(claudeBase, 0.22 * RANGE_SCALE[key]) },
-                { model: "claude-haiku-5", breakdown: scaleCodexBreakdown(claudeBase, 0.07 * RANGE_SCALE[key]) },
-              ],
-            })),
-          },
-      launcher: null,
-      source: "Claude Code 本地 session 转写(离线读取)",
-      sourceUrl: "https://code.claude.com/docs/",
-      notes: ccMissing
-        ? []
-        : [
-            "input 不含 cache(读/写单列),总量 = Input + Output + Cache 读 + Cache 写。",
-            "同一 message.id 的流式重复行按最后一条计数。",
-            "session 转写统计 · 不计入 ZCode 总 Token",
-          ],
-      error: ccMissing
-        ? "未检测到 Claude Code 数据目录(默认 ~/.claude/projects;可在「设置 → Claude Code」指定路径或设置 CLAUDE_CONFIG_DIR)"
-        : null,
-      updatedAtMs: now - 14_000,
-      nextPollMs: now + 60_000,
-    },
-    {
-      provider: "antigravity",
-      status: "not_configured",
-      account: null,
-      planName: null,
-      windows: [],
-      packages: [],
-      localUsage: null,
-      launcher: null,
-      source: "Antigravity 本地 RPC",
+      source: "DSH 本地 session 日志",
       sourceUrl: null,
       notes: [],
       error: null,
-      updatedAtMs: now - 60_000,
+      updatedAtMs: now - 15_000,
+      nextPollMs: now + 180_000,
+    },
+    {
+      provider: "claude-code",
+      status: "disabled",
+      account: null,
+      planName: null,
+      localUsage: null,
+      launcher: null,
+      source: "Claude Code 本地转写",
+      sourceUrl: null,
+      notes: [],
+      error: null,
+      updatedAtMs: 0,
       nextPollMs: 0,
     },
   ] satisfies ProviderSnapshot[],
@@ -848,16 +735,6 @@ export const mockState: Partial<AppState> = {
       animMs: 200,
       sides: { left: true, right: true, top: false },
     },
-    notifications: {
-      enabled: true,
-      spikeMultiplier: 4,
-      spikeMinTokens: 1_000_000,
-      sessionTotalTokens: 10_000_000,
-      cacheHitDrop: 0.2,
-      cacheMinRequests: 20,
-      modelBurstPer5m: 100,
-      stalenessMinutes: 30,
-    },
     window: { x: 80, y: 80, width: 1180, height: 760, maximized: false, dockSide: null, dockHidden: false },
     providers: {
       codexEnabled: true,
@@ -869,15 +746,8 @@ export const mockState: Partial<AppState> = {
       claudeCodeEnabled: true,
       claudeCodeHome: null,
       claudeCodeRefreshMs: 300_000,
-      antigravityEnabled: true,
-      antigravityRefreshMs: 600_000,
-      volcengineEnabled: false,
-      volcengineRefreshMs: 1_800_000,
-      volcengineRegion: "cn-beijing",
-      volcengineFilter: "Token",
     },
     launcher: { enabled: true, exePath: null, autostart: false },
-    quotaAlerts: { enabled: true, thresholds: [50, 20, 10], packageExpiryDays: 7, dailyCostCny: 50 },
   } satisfies Settings,
 };
 
@@ -911,12 +781,6 @@ export function mockSessionsPage(
     pageSize: size,
   };
 }
-
-export const mockHistoryHealth = {
-  persistent: true,
-  error: null,
-  lastSuccessMs: now - 4_000,
-};
 
 function totalSessionTokens(s: SessionSummary): number {
   return s.agg.input + s.agg.output + s.agg.reasoning.sum + s.agg.cacheRead.sum + s.agg.cacheWrite.sum;
@@ -1008,17 +872,11 @@ export async function mockInvoke<T>(cmd: string, args: Record<string, unknown> =
         topSessions: (state.sessions ?? []).slice(0, 10).map((session) => [session.id, totalSessionTokens(session)]),
       } as T;
     }
-    case "get_alerts": return (state.alerts ?? []) as T;
     case "get_active_models": return ["glm-5.3", "glm-5.3-air", "deepseek-v4"] as T;
     case "cost_summary": return { ...state.costSummary, range: String(args.range ?? state.costSummary?.range ?? "today") } as T;
     case "providers_overview": return (state.providers ?? []) as T;
-    case "quota_alerts_list": return (state.quotaAlerts ?? []) as T;
-    case "providers_history": return [] as T;
-    case "providers_consumption": return [] as T;
-    case "history_health": return mockHistoryHealth as T;
     case "set_settings": return args.newSettings as T;
     case "refresh_now":
-    case "providers_refresh":
     case "pricing_refresh": return { ok: true, fxOk: true, error: null, refreshedAt: new Date().toISOString() } as T;
     case "diagnose": return {
       root: null, rootSource: "mock", jsonlFiles: [], sqliteFiles: [], untrackedJsonl: 0,
@@ -1050,7 +908,6 @@ export async function mockInvoke<T>(cmd: string, args: Record<string, unknown> =
       return { model: String(args.model ?? "unknown"), priced: false, notes: ["浏览器 mock 未配置价格"], totalCny: 0, lines: [] } as T;
     }
     case "zcode_status": return state.providers?.find((p) => p.provider === "zcode") as T;
-    case "volcengine_credentials_status": return { configured: false, backend: "mock", akHint: null } as T;
     case "hide_main_window":
     case "export_data":
     case "dock_hover":
@@ -1060,9 +917,6 @@ export async function mockInvoke<T>(cmd: string, args: Record<string, unknown> =
     case "pricing_override":
     case "zcode_launch":
     case "zcode_reveal":
-    case "volcengine_credentials_set":
-    case "volcengine_credentials_clear":
-    case "volcengine_test":
       throw new Error(`${cmd} is unavailable in browser mock`);
     default:
       throw new Error(`Unsupported browser mock command: ${cmd}`);

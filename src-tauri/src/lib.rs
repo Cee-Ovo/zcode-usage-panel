@@ -7,7 +7,6 @@
 //! 4. main window behaviors (always-on-top, edge-docking manager) + reveal,
 //! 5. popup window (hidden) and tray icon.
 
-mod alerts;
 mod commands;
 mod engine;
 mod export;
@@ -40,7 +39,6 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             commands::get_bootstrap,
@@ -52,7 +50,6 @@ pub fn run() {
             commands::get_sessions_page,
             commands::get_session_detail,
             commands::get_model_detail,
-            commands::get_alerts,
             commands::get_active_models,
             commands::set_settings,
             commands::diagnose,
@@ -69,18 +66,9 @@ pub fn run() {
             commands::popup_close,
             commands::quit_app,
             commands::providers_overview,
-            commands::providers_refresh,
-            commands::quota_alerts_list,
-            commands::providers_history,
-            commands::providers_consumption,
             commands::zcode_status,
             commands::zcode_launch,
             commands::zcode_reveal,
-            commands::volcengine_credentials_status,
-            commands::volcengine_credentials_set,
-            commands::volcengine_credentials_clear,
-            commands::volcengine_test,
-            commands::history_health,
         ])
         .setup(|app| setup(app))
         .on_window_event(|window, event| on_window_event(window, event))
@@ -90,7 +78,6 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 let state = app.state::<SharedAppState>();
                 state.engine.save_snapshot();
-                state.hub.persist_state();
                 let s = state.settings.read().unwrap().clone();
                 settings::save(app, &s);
             }
@@ -114,11 +101,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     ));
     engine.set_pricing(pricing_manager.clone());
 
-    // Provider hub (quota dashboard for Codex/Antigravity/Volcengine +
-    // ZCode card + launcher + history + alerts).
+    // Provider hub (local data sources for Codex/DSH/Claude Code +
+    // ZCode card + launcher).
     let cache_dir = handle.path().app_cache_dir().ok();
-    let (hub, hub_rx) = providers::hub::ProviderHub::new(cache_dir, "zcode-usage-panel");
-    let secrets = providers::hub::ProviderHub::default_secret_store();
+    let (hub, hub_rx) = providers::hub::ProviderHub::new(cache_dir);
 
     let state: SharedAppState = Arc::new(AppState {
         settings: settings_arc.clone(),
@@ -127,7 +113,6 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         settings_dirty: std::sync::atomic::AtomicBool::new(false),
         snap: OnceLock::new(),
         hub: hub.clone(),
-        secrets: secrets.clone(),
     });
     app.manage(state.clone());
 
@@ -142,11 +127,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             });
         })?;
 
-    // Provider hub thread: codex/antigravity/volcengine quotas + history +
-    // quota alerts. The ZCode card is fed from the engine's aggregates.
+    // Provider hub thread: local source polls + the ZCode card fed from
+    // the engine's aggregates.
     {
         let hub_for_thread = hub.clone();
-        let secrets_for_thread = secrets.clone();
         let thread_settings = settings_arc.clone();
         hub.set_app(handle.clone());
         hub.set_zcode_card_fn(build_zcode_card_fn(engine.clone(), pricing_manager.clone()));
@@ -154,11 +138,9 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         std::thread::Builder::new()
             .name("zup-providers".into())
             .spawn(move || {
-                hub_for_thread.run_background(
-                    hub_rx,
-                    move || thread_settings.read().unwrap().clone(),
-                    secrets_for_thread,
-                );
+                hub_for_thread.run_background(hub_rx, move || {
+                    thread_settings.read().unwrap().clone()
+                });
             })?;
     }
 

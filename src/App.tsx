@@ -8,7 +8,6 @@ import { store, useStore } from "./lib/store";
 import type { RangeKey } from "./lib/types";
 import { RANGE_KEYS, RANGE_LABELS } from "./lib/types";
 import { TitleBar, WindowFrame } from "./components/WindowFrame";
-import { HistoryHealthStatus } from "./components/HistoryHealthStatus";
 import { DashboardPage } from "./pages/Dashboard";
 import { SessionsPage } from "./pages/Sessions";
 import { ModelsPage } from "./pages/Models";
@@ -155,10 +154,8 @@ export function App() {
             : "today",
           health: healthTracker.derive(Date.now()),
         });
-        const alerts = await api.alerts();
         const providers = await api.providersOverview();
-        const quotaAlerts = await api.quotaAlertsList();
-        if (!disposed) store.set({ alerts, providers, quotaAlerts });
+        if (!disposed) store.set({ providers });
       } catch {
         if (!disposed) {
           initializationFailedRef.current = true;
@@ -206,11 +203,6 @@ export function App() {
       store.set({ providers: snaps ?? [] });
     });
 
-    registerEvent<import("./lib/types").QuotaAlertEvent>("quota-alert", (ev) => {
-      const current = store.get().quotaAlerts;
-      store.set({ quotaAlerts: [ev, ...current].slice(0, 50) });
-    });
-
     registerEvent<boolean>("ui-visibility", (visible) => {
       if (visible) {
         api.refreshNow().catch(() => {});
@@ -218,11 +210,6 @@ export function App() {
       } else {
         coordinatorRef.current?.setVisible(false);
       }
-    });
-
-    registerEvent<import("./lib/types").AlertEvent>("alert", (ev) => {
-      const current = store.get().alerts;
-      store.set({ alerts: [ev, ...current].slice(0, 50) });
     });
 
     registerEvent<import("./lib/types").Settings>("settings-changed", (s) => {
@@ -423,7 +410,6 @@ export function App() {
                       ? `最近成功 ${formatClock(refresh.lastSuccessMs)}`
                       : "\u00A0"}
                 </div>
-                <HistoryHealthStatus />
                 {floatingSidebar && <details className="sidebar-diagnostics">
                   <summary>运行详情</summary>
                   <div>{update?.lastRefreshMs ? `最近刷新尝试 ${formatClock(update.lastRefreshMs)}` : "暂无刷新记录"}</div>

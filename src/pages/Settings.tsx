@@ -5,7 +5,6 @@ import { api } from "../lib/ipc";
 import { FxButton, useAction } from "../components/fx";
 import { store, useStore } from "../lib/store";
 import type {
-  CredentialsStatusDto,
   DiagnoseDto,
   LauncherStatus,
   OverrideDto,
@@ -33,10 +32,7 @@ const SECTIONS = [
   ["codex", "Codex"],
   ["dsh", "DSH"],
   ["claude", "Claude Code"],
-  ["antigravity", "Antigravity"],
-  ["volcengine", "火山引擎"],
   ["pricing", "API Pricing"],
-  ["notifications", "通知"],
   ["appearance", "外观"],
   ["advanced", "高级"],
 ] as const;
@@ -100,14 +96,10 @@ export function SettingsPage() {
   const set = (patch: Partial<Settings>) => setDraft({ ...draft, ...patch });
   const snap = (patch: Partial<Settings["snap"]>) =>
     setDraft({ ...draft, snap: { ...draft.snap, ...patch } });
-  const notif = (patch: Partial<Settings["notifications"]>) =>
-    setDraft({ ...draft, notifications: { ...draft.notifications, ...patch } });
   const prov = (patch: Partial<Settings["providers"]>) =>
     setDraft({ ...draft, providers: { ...draft.providers, ...patch } });
   const launcher = (patch: Partial<Settings["launcher"]>) =>
     setDraft({ ...draft, launcher: { ...draft.launcher, ...patch } });
-  const quota = (patch: Partial<Settings["quotaAlerts"]>) =>
-    setDraft({ ...draft, quotaAlerts: { ...draft.quotaAlerts, ...patch } });
 
   const jump = (id: string) => {
     document.getElementById(`sec-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -134,7 +126,7 @@ export function SettingsPage() {
         <div>
           <span className="page-eyebrow">SETTINGS</span>
           <h1>设置</h1>
-          <p>管理数据源、额度监控与应用行为。</p>
+          <p>管理数据源与应用行为。</p>
         </div>
         <FxButton
           variant="quiet"
@@ -290,13 +282,13 @@ export function SettingsPage() {
       <Glass as="section" className="panel settings-section sample-glass" material="regular" renderer="css" interactive={false} id="sec-codex">
         <div className="panel-title">
           OpenAI Codex
-          <span className="badge-note">额度来自 Codex 官方客户端本地数据</span>
+          <span className="badge-note">本地 session 日志统计 · 离线读取</span>
         </div>
         <div className="switch-row">
           <div>
-            <div>启用 Codex 额度监控</div>
+            <div>启用 Codex 本地数据源</div>
             <div className="desc">
-              读取 {`<用户目录>/.codex`} 的官方 session 文件:5 小时窗口 / 周额度 / credits(离线,不联网)
+              读取 {`<用户目录>/.codex`} 的官方 session 文件(离线,不联网)
             </div>
           </div>
           <Switch
@@ -319,14 +311,14 @@ export function SettingsPage() {
           placeholder="D:\\codex-data"
         />
         <IntervalRow
-          label="额度刷新间隔"
+          label="数据刷新间隔"
           value={draft.providers.codexRefreshMs}
           onChange={(v) => prov({ codexRefreshMs: v })}
           min={30}
           max={3600}
         />
         <div className="desc">
-          本地 Harness Token 统计(Input / Cached / Output / Reasoning)与官方套餐额度分开显示,绝不合并。
+          本地 Harness Token 统计(Input / Cached / Output / Reasoning)。
         </div>
       </Glass>
 
@@ -382,7 +374,7 @@ export function SettingsPage() {
       <Glass as="section" className="panel settings-section sample-glass" material="regular" renderer="css" interactive={false} id="sec-claude">
         <div className="panel-title">
           Claude Code
-          <span className="badge-note">本地 session 转写统计 · 离线读取 · 无官方额度</span>
+          <span className="badge-note">本地 session 转写统计 · 离线读取</span>
         </div>
         <div className="switch-row">
           <div>
@@ -422,93 +414,13 @@ export function SettingsPage() {
         />
         <div className="desc">
           口径:usage 来自转写中的 assistant message.usage(官方口径 input 不含 cache,读/写单列);
-          同一 message.id 的流式重复行按最后一条计数。Claude Code 没有本地可查的官方套餐额度接口,
-          服务额度区不展示其官方额度卡(不编造);费用仅为官方 API 单价估算。
+          同一 message.id 的流式重复行按最后一条计数;费用仅为官方 API 单价估算。
         </div>
       </Glass>
 
       {/* ---------------- Antigravity ---------------- */}
-      <Glass as="section" className="panel settings-section sample-glass" material="regular" renderer="css" interactive={false} id="sec-antigravity">
-        <div className="panel-title">
-          Antigravity / 反重力
-          <span className="badge-note">本地官方客户端 RPC · 仅 127.0.0.1</span>
-        </div>
-        <div className="switch-row">
-          <div>
-            <div>启用 Antigravity 额度监控</div>
-            <div className="desc">
-              通过 Antigravity 官方本地服务查询套餐/剩余额度;客户端未运行时显示「未找到运行中的本地服务」
-            </div>
-          </div>
-          <Switch
-            label={null}
-            aria-label="启用 Antigravity"
-            checked={draft.providers.antigravityEnabled}
-            onCheckedChange={(v) => prov({ antigravityEnabled: v })}
-          />
-        </div>
-        <IntervalRow
-          label="额度刷新间隔"
-          value={draft.providers.antigravityRefreshMs}
-          onChange={(v) => prov({ antigravityRefreshMs: v })}
-          min={60}
-          max={3600}
-        />
-        <div className="desc">
-          Antigravity 无公开远程额度 API;数据完全来自本机官方守护进程,失败时自动降级为 unavailable,不猜测。
-        </div>
-      </Glass>
 
       {/* ---------------- 火山引擎 ---------------- */}
-      <Glass as="section" className="panel settings-section sample-glass" material="regular" renderer="css" interactive={false} id="sec-volcengine">
-        <div className="panel-title">
-          火山引擎 Token 包
-          <span className="badge-note">官方费用中心 OpenAPI</span>
-        </div>
-        <div className="switch-row">
-          <div>
-            <div>启用火山引擎 Token 包监控</div>
-            <div className="desc">调用 ListResourcePackages(官方接口)查询已购资源包余额与到期时间</div>
-          </div>
-          <Switch
-            label={null}
-            aria-label="启用火山引擎"
-            checked={draft.providers.volcengineEnabled}
-            onCheckedChange={(v) => prov({ volcengineEnabled: v })}
-          />
-        </div>
-        <div className="switch-row">
-          <div>
-            <div>Region</div>
-          </div>
-        </div>
-        <TextField
-          label={null}
-          value={draft.providers.volcengineRegion}
-          onChange={(e) => prov({ volcengineRegion: e.target.value })}
-          placeholder="cn-beijing"
-        />
-        <div className="switch-row" style={{ marginTop: 6 }}>
-          <div>
-            <div>资源包过滤(可选)</div>
-            <div className="desc">按名称/规格筛选,例如「Token」;留空显示全部资源包</div>
-          </div>
-        </div>
-        <TextField
-          label={null}
-          value={draft.providers.volcengineFilter}
-          onChange={(e) => prov({ volcengineFilter: e.target.value })}
-          placeholder="Token"
-        />
-        <IntervalRow
-          label="额度刷新间隔"
-          value={draft.providers.volcengineRefreshMs}
-          onChange={(v) => prov({ volcengineRefreshMs: v })}
-          min={300}
-          max={86400}
-        />
-        <VolcengineCredentials />
-      </Glass>
 
       {/* ---------------- API pricing ---------------- */}
       <Glass as="section" className="panel settings-section sample-glass" material="regular" renderer="css" interactive={false} id="sec-pricing">
@@ -529,118 +441,6 @@ export function SettingsPage() {
       </Glass>
 
       {/* ---------------- 通知 ---------------- */}
-      <Glass as="section" className="panel settings-section sample-glass" material="regular" renderer="css" interactive={false} id="sec-notifications">
-        <div className="panel-title">通知(本地 Windows 通知)</div>
-
-        <div className="panel-title" style={{ fontSize: 12, marginTop: 2 }}>
-          额度提醒
-        </div>
-        <div className="switch-row">
-          <div>
-            <div>启用额度提醒</div>
-            <div className="desc">剩余 50% / 20% / 10%、Token 包到期、数据停更、API 成本阈值</div>
-          </div>
-          <Switch
-            label={null}
-            aria-label="启用额度提醒"
-            checked={draft.quotaAlerts.enabled}
-            onCheckedChange={(v) => quota({ enabled: v })}
-          />
-        </div>
-        <div className="switch-row">
-          <div>
-            <div>剩余比例阈值</div>
-            <div className="desc">低于所选比例时通知(同一事件冷却 6 小时)</div>
-          </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            {[50, 20, 10].map((t) => (
-              <label key={t} style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                <input
-                  type="checkbox"
-                  checked={draft.quotaAlerts.thresholds.includes(t)}
-                  onChange={(e) => {
-                    const cur = draft.quotaAlerts.thresholds;
-                    quota({
-                      thresholds: e.target.checked
-                        ? [...cur, t].sort((a, b) => a - b)
-                        : cur.filter((x) => x !== t),
-                    });
-                  }}
-                />
-                {t}%
-              </label>
-            ))}
-          </div>
-        </div>
-        <div className="switch-row">
-          <div>
-            <div>Token 包到期提前提醒(天)</div>
-          </div>
-          <input
-            type="number"
-            min={1}
-            max={60}
-            value={draft.quotaAlerts.packageExpiryDays}
-            onChange={(e) => quota({ packageExpiryDays: Number(e.target.value) })}
-            style={{ width: 80, textAlign: "right" }}
-          />
-        </div>
-        <div className="switch-row">
-          <div>
-            <div>今日 API 等价成本提醒(¥,0 关闭)</div>
-            <div className="desc">ZCode 当日估算成本达到阈值时提醒一次</div>
-          </div>
-          <input
-            type="number"
-            min={0}
-            step={1}
-            value={draft.quotaAlerts.dailyCostCny}
-            onChange={(e) => quota({ dailyCostCny: Number(e.target.value) })}
-            style={{ width: 90, textAlign: "right" }}
-          />
-        </div>
-
-        <div className="panel-title" style={{ fontSize: 12, marginTop: 14 }}>
-          ZCode 用量异常检测
-        </div>
-        <div className="switch-row">
-          <div>
-            <div>启用异常提醒</div>
-            <div className="desc">所有规则本地计算;每条规则 15 分钟冷却</div>
-          </div>
-          <Switch
-            label={null}
-            aria-label="启用异常提醒"
-            checked={draft.notifications.enabled}
-            onCheckedChange={(v) => notif({ enabled: v })}
-          />
-        </div>
-        {(
-          [
-            ["spikeMultiplier", "激增倍数(10 分钟 vs 前一小时均值)", 2, 50, 1],
-            ["spikeMinTokens", "激增最低 Token", 100_000, 50_000_000, 100_000],
-            ["sessionTotalTokens", "单 Session 阈值", 1_000_000, 500_000_000, 1_000_000],
-            ["cacheMinRequests", "命中率下降最少请求数", 5, 500, 5],
-            ["modelBurstPer5m", "模型 5 分钟连调次数", 50, 5000, 50],
-            ["stalenessMinutes", "数据停滞提醒(分钟)", 15, 720, 15],
-          ] as const
-        ).map(([key, label, min, max, step]) => (
-          <div className="switch-row" key={key}>
-            <div>
-              <div>{label}</div>
-            </div>
-            <input
-              type="number"
-              min={min}
-              max={max}
-              step={step}
-              value={draft.notifications[key]}
-              onChange={(e) => notif({ [key]: Number(e.target.value) } as never)}
-              style={{ width: 110, textAlign: "right" }}
-            />
-          </div>
-        ))}
-      </Glass>
 
       {/* ---------------- 外观 ---------------- */}
       <Glass as="section" className="panel settings-section sample-glass" material="regular" renderer="css" interactive={false} id="sec-appearance">
@@ -896,117 +696,6 @@ function LauncherProbe() {
   );
 }
 
-/** 火山凭据:保存到系统 keyring,值永不出现在 UI/文件。 */
-function VolcengineCredentials() {
-  const [status, setStatus] = useState<CredentialsStatusDto | null>(null);
-  const [ak, setAk] = useState("");
-  const [sk, setSk] = useState("");
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-
-  const refresh = () => api.volcengineCredentialsStatus().then(setStatus).catch(() => {});
-  useEffect(() => {
-    refresh();
-  }, []);
-
-  const save = useAction(
-    async () => {
-      try {
-        await api.volcengineCredentialsSet(ak.trim(), sk.trim());
-        setAk("");
-        setSk("");
-        setMsg({ ok: true, text: "已保存到系统凭据管理器" });
-        refresh();
-      } catch (e) {
-        setMsg({ ok: false, text: String(e) });
-        throw e; // let the button show its error phase
-      }
-    },
-    { okText: "已保存" },
-  );
-
-  const test = useAction(
-    async () => {
-      try {
-        const text = await api.volcengineTest();
-        setMsg({ ok: true, text });
-      } catch (e) {
-        setMsg({ ok: false, text: String(e) });
-        throw e;
-      }
-    },
-    { okText: "连接正常" },
-  );
-
-  const clear = useAction(
-    async () => {
-      try {
-        await api.volcengineCredentialsClear();
-        setMsg({ ok: true, text: "已清除凭据" });
-        refresh();
-      } catch (e) {
-        setMsg({ ok: false, text: String(e) });
-        throw e;
-      }
-    },
-    { okText: "已清除" },
-  );
-
-  return (
-    <div style={{ marginTop: 12 }}>
-      <div className="panel-title" style={{ fontSize: 12 }}>
-        凭据(AccessKey / SecretKey)
-      </div>
-      <div className="desc" style={{ marginBottom: 6 }}>
-        {status?.configured
-          ? `已配置(${status.akHint ?? "***"}) · 存储:${status.backend}。Secret 永远不写入任何文件或日志。`
-          : "未配置。需要具备费用中心只读权限(BillingCenterReadOnlyAccess)的 IAM AccessKey。"}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <TextField label={null} value={ak} onChange={(e) => setAk(e.target.value)} placeholder="AccessKey ID" />
-        <TextField
-          label={null}
-          value={sk}
-          onChange={(e) => setSk(e.target.value)}
-          placeholder="Secret Access Key"
-          type="password"
-        />
-      </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
-        <FxButton
-          variant="primary"
-          size="small"
-          action={save}
-          busyLabel="保存中…"
-          disabled={ak.trim() === "" || sk.trim() === ""}
-        >
-          保存凭据
-        </FxButton>
-        <FxButton variant="quiet" size="small" action={test} busyLabel="测试中…">
-          测试连接
-        </FxButton>
-        <FxButton
-          variant="danger"
-          size="small"
-          action={clear}
-          busyLabel="清除中…"
-          disabled={!status?.configured}
-        >
-          清除
-        </FxButton>
-        {msg && (
-          <motion.span
-            key={msg.text}
-            initial={{ opacity: 0, y: -3 }}
-            animate={{ opacity: 1, y: 0 }}
-            style={{ fontSize: 11, color: msg.ok ? "var(--zup-text-3)" : "var(--zup-danger)" }}
-          >
-            {msg.text}
-          </motion.span>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function DiagnosePanel({ diag }: { diag: DiagnoseDto }) {
   const [showLocalDetails, setShowLocalDetails] = useState(false);

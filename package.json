@@ -1,7 +1,7 @@
 {
   "name": "zcode-usage-panel",
   "private": true,
-  "version": "1.4.3",
+  "version": "1.4.4",
   "description": "Windows AI coding usage dashboard: ZCode tokens, Codex / Antigravity / Volcengine quotas, tray, edge-docking.",
   "type": "module",
   "scripts": {

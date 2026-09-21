@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated_at": "2026-09-11",
+  "updated_at": "2026-09-21",
   "entries": [
     {
       "provider": "zai",
@@ -28,7 +28,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://docs.z.ai/guides/overview/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "promo": null,
           "notes": [
             "Cached Input Storage 限时免费（官方），按 0 计"
@@ -42,24 +42,36 @@
           "currency": "USD",
           "pricing": {
             "type": "flat",
-            "input_per_m": 0.075,
-            "cache_hit_per_m": 0.015,
+            "input_per_m": 0.15,
+            "cache_hit_per_m": 0.03,
             "cache_write_per_m": null,
             "cache_storage_per_m": 0,
-            "output_per_m": 0.25
+            "output_per_m": 0.5
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://docs.z.ai/guides/overview/pricing",
-          "updated_at": "2026-09-09",
-          "promo": {
-            "active_until": "2026-09-09T15:59:59Z",
-            "note": "促销 5 折（2026-09-09 24:00 UTC+8 结束），到期自动恢复原价",
-            "list": {
-              "input_per_m": 0.15,
-              "cache_hit_per_m": 0.03,
-              "output_per_m": 0.5
-            }
+          "updated_at": "2026-09-21",
+          "promo": null,
+          "notes": [
+            "2026-09-09 的 5 折促销已结束，官方页现价即标准价 0.15/0.03/0.50（2026-09-21 核对）",
+            "Cached Input Storage 限时免费（官方），按 0 计"
+          ]
+        },
+        {
+          "model": "glm-5.3-flashx",
+          "currency": "USD",
+          "pricing": {
+            "type": "flat",
+            "input_per_m": 0.37,
+            "cache_hit_per_m": 0.075,
+            "cache_write_per_m": null,
+            "cache_storage_per_m": 0,
+            "output_per_m": 1.25
           },
+          "reasoning_policy": "included_in_output",
+          "source_url": "https://docs.z.ai/guides/overview/pricing",
+          "updated_at": "2026-09-21",
+          "promo": null,
           "notes": [
             "Cached Input Storage 限时免费（官方），按 0 计"
           ]
@@ -80,7 +92,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://docs.z.ai/guides/overview/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "promo": null,
           "notes": [
             "与 GLM-5.3 同价（官方定价页）",
@@ -100,7 +112,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://docs.z.ai/guides/overview/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "promo": null,
           "notes": [
             "与 GLM-5.3 同价（官方定价页）",
@@ -140,7 +152,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
-          "updated_at": "2026-09-11",
+          "updated_at": "2026-09-21",
           "promo": null,
           "notes": [
             "现役型号（版本 DeepSeek-V4.1-Flash），原有的 v4-flash 已下线、请求由该型号承接并按 Flash 价计费（官方页）",
@@ -172,7 +184,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
-          "updated_at": "2026-09-11",
+          "updated_at": "2026-09-21",
           "promo": null,
           "notes": [
             "旧 id 已退役：官方页说明仍可调用，但请求实际由 DeepSeek-V4.1-Flash 承接并按 Flash 价格计费，故按现役 Flash 价录入（2026-09-11 核对）",
@@ -200,12 +212,12 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
-          "updated_at": "2026-09-11",
+          "updated_at": "2026-09-21",
           "promo": null,
           "notes": [
             "高峰=北京时间工作日 9:00–12:00、14:00–18:00",
             "缓存存储免费（官方）",
-            "官方页标注 v4-pro 计划退役：2026-09-14 12:00（北京时间）后请求转由 V4.1 Flash 承接并按 Flash 价计费"
+            "2026-09-21 核对：官方页仍将 v4-pro 列为在售并保留其独立价格（此前「2026-09-14 退役」的说明已从官方页撤下）"
           ]
         },
         {
@@ -228,7 +240,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
-          "updated_at": "2026-09-11",
+          "updated_at": "2026-09-21",
           "promo": null,
           "notes": [
             "旧 id 已退役：官方页说明仍可调用，但请求由 DeepSeek-V4.1-Flash 承接并按 Flash 价格计费（2026-09-11 核对）",
@@ -259,7 +271,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "input_schema": "exclusive",
           "promo": null,
           "notes": [
@@ -282,7 +294,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "input_schema": "exclusive",
           "promo": null,
           "notes": [
@@ -305,7 +317,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "input_schema": "exclusive",
           "promo": null,
           "notes": [
@@ -327,7 +339,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "input_schema": "exclusive",
           "promo": null,
           "notes": [
@@ -350,7 +362,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "input_schema": "exclusive",
           "promo": null,
           "notes": [
@@ -372,7 +384,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "input_schema": "exclusive",
           "promo": null,
           "notes": [
@@ -395,7 +407,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "input_schema": "exclusive",
           "promo": null,
           "notes": [
@@ -417,7 +429,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "input_schema": "exclusive",
           "promo": null,
           "notes": [
@@ -440,7 +452,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "input_schema": "exclusive",
           "promo": null,
           "notes": [
@@ -462,7 +474,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "input_schema": "exclusive",
           "promo": null,
           "notes": [
@@ -485,7 +497,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "input_schema": "exclusive",
           "promo": null,
           "notes": [
@@ -507,7 +519,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "input_schema": "exclusive",
           "promo": null,
           "notes": [
@@ -528,7 +540,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "input_schema": "exclusive",
           "promo": null,
           "notes": [
@@ -558,7 +570,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-11",
+          "updated_at": "2026-09-21",
           "promo": null,
           "notes": [
             "标准档价格（官方页 Standard 表格，2026-09-11 核对）",
@@ -581,7 +593,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-11",
+          "updated_at": "2026-09-21",
           "promo": null,
           "notes": [
             "官方页按 <272K context length 档给出的标准价；更长上下文档以官方页为准",
@@ -601,7 +613,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "promo": null,
           "notes": [
             "标准档（短上下文）价格；长上下文请求费率上浮（官方页），本表按标准档估算",
@@ -621,7 +633,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "promo": null,
           "notes": [
             "官方标注该价为促销价（至少持续至 2026-11-21）",
@@ -642,7 +654,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "promo": null,
           "notes": [
             "标准档（短上下文）价格；长上下文请求费率上浮（官方页），本表按标准档估算",
@@ -656,16 +668,17 @@
             "type": "flat",
             "input_per_m": 12.5,
             "cache_hit_per_m": 1.25,
-            "cache_write_per_m": null,
+            "cache_write_per_m": 15.625,
             "cache_storage_per_m": null,
             "output_per_m": 75.0
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "promo": null,
           "notes": [
-            "仅短上下文计费档（官方页）；cached input 为包含式口径"
+            "仅短上下文计费档（官方页）；cached input 为包含式口径",
+            "缓存写入价 15.625（官方页 Cyber models 表，2026-09-21 补录）"
           ]
         }
       ]
@@ -691,7 +704,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://docs.x.ai/docs/models",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "promo": null,
           "notes": [
             "prompt < 200k tokens 标准档；≥ 200k 全请求费率翻倍（官方页），本表按标准档估算"
@@ -713,7 +726,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://docs.x.ai/docs/models",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "promo": null,
           "notes": [
             "prompt < 200k tokens 标准档；≥ 200k 全请求费率翻倍（官方页），本表按标准档估算"
@@ -736,16 +749,18 @@
             "type": "flat",
             "input_per_m": 3.0,
             "cache_hit_per_m": 0.3,
-            "cache_write_per_m": null,
+            "cache_write_per_m": 3.0,
+            "cache_write_1h_per_m": 6.0,
             "cache_storage_per_m": null,
             "output_per_m": 15.0
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://platform.kimi.ai/docs/pricing/chat",
-          "updated_at": "2026-09-11",
+          "updated_at": "2026-09-21",
           "promo": null,
           "notes": [
-            "输入价按 cache miss 口径，命中部分按缓存价计（官方页 ¥20 / ¥2 / ¥100，按官方美元页 $3 / $0.30 / $15 录入）"
+            "输入价按 cache miss 口径，命中部分按缓存价计（官方页 ¥20 / ¥2 / ¥100，按官方美元页 $3 / $0.30 / $15 录入）",
+            "缓存写入按 TTL 分档单独计费：5min $3、1h $6（官方页，2026-09-21 补录）"
           ]
         },
         {
@@ -761,7 +776,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://platform.kimi.ai/docs/pricing/chat-k27-code",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "promo": null,
           "notes": [
             "输入价按 cache miss 口径，命中部分按缓存价计（官方页）"
@@ -780,7 +795,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://platform.kimi.ai/docs/pricing/chat-k27-code",
-          "updated_at": "2026-09-09",
+          "updated_at": "2026-09-21",
           "promo": null,
           "notes": [
             "高速版（约 180 tok/s），与 kimi-k2.7-code 同源双倍价（官方页）"
@@ -810,7 +825,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
-          "updated_at": "2026-09-11",
+          "updated_at": "2026-09-21",
           "promo": {
             "active_until": "2027-01-01T00:00:00Z",
             "note": "官方页现价标注为「through December 31, 2026」，2027-01-01 起恢复 list 价，到期自动切换",
@@ -854,7 +869,7 @@
           },
           "reasoning_policy": "included_in_output",
           "source_url": "https://platform.minimaxi.com/docs/guides/pricing-paygo",
-          "updated_at": "2026-09-11",
+          "updated_at": "2026-09-21",
           "promo": null,
           "notes": [
             "≤512k 输入 tokens 档；官方页标注永久五折，本表按折后价录入（原价 输入 4.20 / 输出 16.80 / 缓存读取 0.84）",
@@ -880,16 +895,46 @@
             "input_per_m": 6.0,
             "cache_hit_per_m": 1.2,
             "cache_write_per_m": null,
-            "cache_storage_per_m": null,
+            "cache_storage_per_m": 0.017,
             "output_per_m": 30.0
           },
           "reasoning_policy": "included_in_output",
-          "source_url": "https://www.volcengine.com/product/doubao",
-          "updated_at": "2026-09-09",
+          "source_url": "https://docs.volcengine.com/docs/ark/model-pricing",
+          "updated_at": "2026-09-21",
           "promo": null,
           "notes": [
-            "缓存存储 0.017 元/百万 tokens/小时（按小时计，另见于官方页，未计入本表按 M 估价）",
+            "缓存存储 0.017 元/百万 tokens/小时（官方页，按小时计，仅在明细分行展示、不计入按 M 估价）",
             "Evolving 型号持续升级，当前定价对应 seed-2.1-pro 同档（官方页）"
+          ]
+        }
+      ]
+    },
+    {
+      "provider": "stepfun",
+      "display_name": "StepFun 阶跃星辰",
+      "provider_match": [
+        "stepfun",
+        "step",
+        "阶跃星辰"
+      ],
+      "models": [
+        {
+          "model": "step-5-preview",
+          "currency": "CNY",
+          "pricing": {
+            "type": "flat",
+            "input_per_m": 7.0,
+            "cache_hit_per_m": 0.35,
+            "cache_write_per_m": null,
+            "cache_storage_per_m": null,
+            "output_per_m": 20.0
+          },
+          "reasoning_policy": "included_in_output",
+          "source_url": "https://platform.stepfun.com/docs/zh/pricing/details",
+          "updated_at": "2026-09-21",
+          "promo": null,
+          "notes": [
+            "官方定价表：输入（缓存未命中）7 元 / 缓存命中 0.35 元 / 输出 20 元（每百万 tokens，2026-09-21 核对）"
           ]
         }
       ]

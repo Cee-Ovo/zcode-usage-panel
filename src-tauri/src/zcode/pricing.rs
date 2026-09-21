@@ -1410,11 +1410,39 @@ mod tests {
     const WED_12: i64 = 1_787_716_800_000;
     /// Sat 2026-08-29 10:00 Beijing (UTC+8) — deepseek off-peak (weekend).
     const SAT_10: i64 = 1_787_968_800_000;
-    /// Wed 2026-08-26 — before the built-in glm-5.3-flash promo expiry.
+    /// Wed 2026-08-26 — used as "now" wherever a fixed instant is needed.
     const NOW: i64 = 1_787_709_600_000;
 
     fn builtin() -> PricingTable {
         serde_json::from_str(BUILTIN_PRICES).unwrap()
+    }
+
+    /// 内置表已不含促销（glm-5.3-flash 的 5 折促销 2026-09-09 结束），
+    /// 促销生效/到期回落两条路径用这条自造条目覆盖：现价 = 促销价，
+    /// `promo.list` = 标准价。
+    fn flash_with_promo(active_until: &str) -> PricingTable {
+        let mut t = builtin();
+        for pe in &mut t.entries {
+            for e in &mut pe.models {
+                if e.model != "glm-5.3-flash" {
+                    continue;
+                }
+                let Pricing::Flat(f) = &mut e.pricing else { panic!("glm-5.3-flash 应为 flat 定价") };
+                f.input_per_m = 0.075;
+                f.cache_hit_per_m = 0.015;
+                f.output_per_m = 0.25;
+                e.promo = Some(Promo {
+                    active_until: active_until.into(),
+                    note: "促销 5 折".into(),
+                    list: PromoList {
+                        input_per_m: 0.15,
+                        cache_hit_per_m: 0.03,
+                        output_per_m: 0.5,
+                    },
+                });
+            }
+        }
+        t
     }
 
     fn fx() -> FxInfo {
@@ -1468,7 +1496,7 @@ mod tests {
     #[test]
     fn builtin_json_parses() {
         let t = builtin();
-        assert_eq!(t.entries.len(), 9);
+        assert_eq!(t.entries.len(), 10);
         let models: Vec<&str> = t.entries.iter().flat_map(|p| p.models.iter().map(|m| m.model.as_str())).collect();
         assert!(models.contains(&"glm-5.3-flash"));
         assert!(models.contains(&"deepseek-v4-flash"));
@@ -1484,6 +1512,9 @@ mod tests {
         assert!(models.contains(&"gpt-6-astra"));
         assert!(models.contains(&"gpt-5.5"));
         assert!(models.contains(&"minimax-m3"));
+        // 2026-09-21 官方页核对后新增（此前价格未知）。
+        assert!(models.contains(&"glm-5.3-flashx"));
+        assert!(models.contains(&"step-5-preview"));
         // 带供应商前缀的同一型号按别名匹配（本地日志里的原始写法）。
         assert!(find_entry(&t, "z-ai/glm-5.2").is_some());
         assert!(find_entry(&t, "minimaxai/minimax-m3").is_some());
@@ -1541,7 +1572,7 @@ mod tests {
 
     #[test]
     fn promo_active_uses_promo_price() {
-        let t = builtin();
+        let t = flash_with_promo("2026-09-09T15:59:59Z");
         let (e, _) = find_entry(&t, "glm-5.3-flash").unwrap();
         let rp = resolve_price(e, None, NOW, NOW);
         assert!((rp.effective.input_per_m - 0.075).abs() < 1e-9);
@@ -1552,14 +1583,7 @@ mod tests {
 
     #[test]
     fn promo_expired_falls_back_to_list_price() {
-        let mut t = builtin();
-        for pe in &mut t.entries {
-            for e in &mut pe.models {
-                if e.model == "glm-5.3-flash" {
-                    e.promo.as_mut().unwrap().active_until = "2026-01-01T00:00:00Z".into();
-                }
-            }
-        }
+        let t = flash_with_promo("2026-01-01T00:00:00Z");
         let (e, _) = find_entry(&t, "glm-5.3-flash").unwrap();
         let rp = resolve_price(e, None, NOW, NOW);
         assert!((rp.effective.input_per_m - 0.15).abs() < 1e-9);
@@ -1717,7 +1741,7 @@ mod tests {
 
     #[test]
     fn pricing_table_dto_effective_prices() {
-        let t = builtin();
+        let t = flash_with_promo("2026-09-09T15:59:59Z");
         let now = NOW;
         let dto = |model: &str| {
             let mut found = None;

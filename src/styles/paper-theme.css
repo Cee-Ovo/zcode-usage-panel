@@ -310,6 +310,24 @@
   box-shadow: none;
 }
 
+/* Windows「减少透明度/高对比」分支:liquid-segments 与 refinement 在该媒体
+   查询里把 lens 染成 Highlight(浅色下≈白)、文字 HighlightText(白)→ 白上白。
+   纸感下给回 K3 药丸:墨底纸字,与正常分支一致。forced-colors 会把
+   background/color 强制替换成系统色,必须 forced-color-adjust:none 才保得住。 */
+@media (prefers-reduced-transparency: reduce), (forced-colors: active) {
+  :root .zup-frame .liquid-segments {
+    background: var(--paper-muted);
+    border-color: var(--paper-line);
+  }
+
+  :root .zup-frame .liquid-segments__lens,
+  :root .zup-frame .liquid-segments__item[aria-pressed="true"] {
+    forced-color-adjust: none;
+    background: var(--paper-ink) !important;
+    color: var(--paper-page) !important;
+  }
+}
+
 /* 下拉/菜单浮层 */
 :root .zup-frame .ogui-menu,
 :root .zup-frame .ogui-select__listbox {

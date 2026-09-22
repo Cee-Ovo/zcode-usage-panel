@@ -312,18 +312,32 @@
 
 /* Windows「减少透明度/高对比」分支:liquid-segments 与 refinement 在该媒体
    查询里把 lens 染成 Highlight(浅色下≈白)、文字 HighlightText(白)→ 白上白。
-   纸感下给回 K3 药丸:墨底纸字,与正常分支一致。forced-colors 会把
-   background/color 强制替换成系统色,必须 forced-color-adjust:none 才保得住。 */
+   兜底方案不依赖 forced-color-adjust(WebView2 真机行为与 Chromium 模拟不一致):
+   直接把选中项画成实心墨底纸字 —— background/color 都写在按钮本身上,
+   lens(半透明伪层)整个隐藏,不给系统色替换留任何作用面。 */
 @media (prefers-reduced-transparency: reduce), (forced-colors: active) {
   :root .zup-frame .liquid-segments {
+    forced-color-adjust: none;
     background: var(--paper-muted);
     border-color: var(--paper-line);
   }
 
-  :root .zup-frame .liquid-segments__lens,
-  :root .zup-frame .liquid-segments__item[aria-pressed="true"] {
+  :root .zup-frame .liquid-segments__lens {
+    display: none !important;
+  }
+
+  :root .zup-frame .liquid-segments__item {
     forced-color-adjust: none;
+    border-radius: 999px;
+  }
+
+  :root .zup-frame .liquid-segments__item[aria-pressed="true"] {
     background: var(--paper-ink) !important;
+    color: var(--paper-page) !important;
+    box-shadow: none !important;
+  }
+
+  :root .zup-frame .liquid-segments__item[aria-pressed="true"] .liquid-segments__content {
     color: var(--paper-page) !important;
   }
 }

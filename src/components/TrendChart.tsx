@@ -4,8 +4,10 @@ import { totalTokens } from "../lib/types";
 import { formatBucketLabel, formatFull, formatTokens } from "../lib/format";
 
 /**
- * Hand-rolled SVG trend chart (stacked bars / model lines).
- * Zero chart dependencies → tiny bundle, no layout thrash, fully memoized.
+ * Hand-rolled SVG trend chart (zero chart dependencies).
+ * K3 布局(参考 Usage panel web 版):按模型/按类型堆叠柱、y 轴刻度 +
+ * 水平网格线、右上角图例(按模型下点击图例切换模型可见性)、
+ * hover 十字线 + 悬浮明细卡。
  */
 
 const STACK_SERIES: {
@@ -49,17 +51,37 @@ const MODEL_COLORS = [
   "#98a8b8",
   "#b9bec7",
 ];
+const OTHER_COLOR = "#b9bec7";
+
+/** 排行图中折叠进「其他」的具名模型数(其余聚合为灰色)。 */
+const NAMED_MODELS = 4;
+
+interface Seg {
+  key: string;
+  color: string;
+  value: number;
+}
+
+/** 上取整到 1/2/2.5/5×10^n,让 y 轴刻度是整数档(如 3.00M 步进)。 */
+function niceCeil(v: number): number {
+  if (!isFinite(v) || v <= 0) return 1;
+  const exp = Math.floor(Math.log10(v));
+  const base = Math.pow(10, exp);
+  const n = v / base;
+  const nice = n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10;
+  return nice * base;
+}
 
 export function TrendChart({
   trend,
   visibleModels,
-  height = 190,
+  height = 220,
 }: {
   trend: TrendDto | null;
   visibleModels: string[] | null;
   height?: number;
 }) {
-  const [mode, setMode] = useState<"stack" | "models">("stack");
+  const [mode, setMode] = useState<"models" | "stack">("models");
   const [hover, setHover] = useState<number | null>(null);
   const buckets = trend?.buckets ?? [];
   const modelNames = useMemo(() => {
@@ -69,6 +91,28 @@ export function TrendChart({
     }
     return Array.from(set);
   }, [buckets]);
+  // 按总量取 Top-N 具名模型,其余折进「其他」(与 Web 版排行图同思路)。
+  const topModels = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const b of buckets) {
+      for (const [m, agg] of Object.entries(b.byModel)) {
+        totals.set(m, (totals.get(m) ?? 0) + totalTokens(agg));
+      }
+    }
+    return [...totals.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, NAMED_MODELS)
+      .map(([m]) => m);
+  }, [buckets]);
+  const visible =
+    visibleModels?.length
+      ? modelNames.filter((m) => visibleModels.includes(m))
+      : modelNames;
+
+  const bucketMin =
+    buckets.length > 1
+      ? Math.round((buckets[1].startMs - buckets[0].startMs) / 60_000)
+      : null;
 
   if (!buckets.length) {
     return (
@@ -80,140 +124,178 @@ export function TrendChart({
     );
   }
 
+  const segsFor = (b: Bucket): Seg[] => {
+    if (mode === "stack") {
+      return STACK_SERIES.map((s) => ({
+        key: s.key,
+        color: s.color,
+        value: s.extract(b.agg),
+      })).filter((s) => s.value > 0);
+    }
+    const segs: Seg[] = [];
+    let namedSum = 0;
+    topModels.forEach((m, i) => {
+      if (!visible.includes(m)) return;
+      const agg = b.byModel[m];
+      const v = agg ? totalTokens(agg) : 0;
+      if (v > 0) {
+        segs.push({ key: m, color: MODEL_COLORS[i % MODEL_COLORS.length], value: v });
+        namedSum += v;
+      }
+    });
+    // 桶总量减去具名可见部分 = 其他(含被隐藏的模型),保持总量诚实。
+    const other = totalTokens(b.agg) - namedSum;
+    if (other > 0.5) segs.push({ key: "__other__", color: OTHER_COLOR, value: other });
+    return segs;
+  };
+
   const W = 1000;
   const H = height;
-  const padL = 6;
-  const padB = 20;
-  const plotW = W - padL * 2;
-  const plotH = H - padB;
+  const padL = 56;
+  const padR = 8;
+  const padB = 22;
+  const padT = 8;
+  const plotW = W - padL - padR;
+  const plotH = H - padB - padT;
   const bw = plotW / buckets.length;
 
-  const visible = visibleModels?.length
-    ? modelNames.filter((m) => visibleModels.includes(m))
-    : modelNames;
-
-  const max = Math.max(
-    1,
-    ...(mode === "stack"
-      ? buckets.map((b) => STACK_SERIES.reduce((s, d) => s + d.extract(b.agg), 0))
-      : buckets.map((b) =>
-          visible.reduce((s, m) => s + (b.byModel[m] ? totalTokens(b.byModel[m]) : 0), 0),
-        )),
+  const max = niceCeil(
+    Math.max(1, ...buckets.map((b) => segsFor(b).reduce((s, x) => s + x.value, 0))),
   );
+  const yScale = (v: number) => padT + plotH - (v / max) * plotH;
+  const yTicks = [0, 0.25, 0.5, 0.75, 1];
 
-  const yScale = (v: number) => plotH - (v / max) * (plotH - 8);
+  const toggleModel = (m: string) => {
+    const current = visibleModels ?? modelNames;
+    const on = visible.includes(m);
+    const next = on ? current.filter((x) => x !== m) : [...current, m];
+    window.dispatchEvent(
+      new CustomEvent("zup-toggle-model", { detail: next.length ? next : null }),
+    );
+  };
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
-        <button
-          className={`model-chip ${mode === "stack" ? "on" : ""}`}
-          onClick={() => setMode("stack")}
-        >
-          字段堆叠
-        </button>
-        {modelNames.map((m, i) => {
-          const on = !visibleModels || visibleModels.includes(m);
-          return (
-            <button
-              key={m}
-              className={`model-chip ${on ? "on" : ""}`}
-              onClick={() => {
-                setMode("models");
-                const current = visibleModels ?? modelNames;
-                const next = on
-                  ? current.filter((x) => x !== m)
-                  : [...current, m];
-                window.dispatchEvent(
-                  new CustomEvent("zup-toggle-model", {
-                    detail: next.length ? next : null,
-                  }),
+      <div className="trend-head">
+        <div className="trend-mode" role="group" aria-label="趋势维度">
+          <button
+            className={mode === "models" ? "on" : ""}
+            onClick={() => setMode("models")}
+            aria-pressed={mode === "models"}
+          >
+            按模型
+          </button>
+          <button
+            className={mode === "stack" ? "on" : ""}
+            onClick={() => setMode("stack")}
+          >
+            按类型
+          </button>
+        </div>
+        {bucketMin !== null && (
+          <span className="muted" style={{ fontSize: 11 }}>
+            每桶 {bucketMin} 分钟
+          </span>
+        )}
+        <div className="trend-legend">
+          {mode === "models" ? (
+            <>
+              {topModels.map((m, i) => {
+                const on = visible.includes(m);
+                return (
+                  <button
+                    key={m}
+                    className="model-chip"
+                    onClick={() => toggleModel(m)}
+                    title={`${m} — 点击显示/隐藏`}
+                  >
+                    <span
+                      className="dot"
+                      style={{ background: MODEL_COLORS[i % MODEL_COLORS.length] }}
+                    />
+                    {m}
+                  </button>
                 );
-              }}
-              title={`${m} — 点击显示/隐藏`}
-            >
-              <span className="dot" style={{ background: MODEL_COLORS[i % MODEL_COLORS.length] }} />
-              {m}
-            </button>
-          );
-        })}
+              })}
+              <span className="model-chip" title="其余模型合计">
+                <span className="dot" style={{ background: OTHER_COLOR }} />
+                其他
+              </span>
+            </>
+          ) : (
+            STACK_SERIES.map((s) => (
+              <span key={s.key} className="model-chip">
+                <span className="dot" style={{ background: s.color }} />
+                {s.label}
+              </span>
+            ))
+          )}
+        </div>
       </div>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         style={{ width: "100%", height: "auto", display: "block" }}
         onPointerLeave={() => setHover(null)}
       >
-        {/* gridlines */}
-        {[0.25, 0.5, 0.75, 1].map((f) => (
-          <line
-            key={f}
-            x1={padL}
-            x2={W - padL}
-            y1={yScale(max * f)}
-            y2={yScale(max * f)}
-            stroke="currentColor"
-            strokeOpacity="0.08"
-            strokeDasharray="3 5"
-          />
+        {/* y gridlines + labels */}
+        {yTicks.map((f) => (
+          <g key={f}>
+            <line
+              x1={padL}
+              x2={W - padR}
+              y1={yScale(max * f)}
+              y2={yScale(max * f)}
+              stroke="currentColor"
+              strokeOpacity={f === 0 ? 0.16 : 0.08}
+            />
+            <text
+              x={padL - 7}
+              y={yScale(max * f) + 3}
+              fontSize="9.5"
+              textAnchor="end"
+              fill="var(--zup-text-3)"
+            >
+              {formatTokens(Math.round(max * f))}
+            </text>
+          </g>
         ))}
-        {mode === "stack"
-          ? buckets.map((b, i) => {
-              let acc = 0;
-              return (
-                <g
-                  key={b.startMs}
-                  onPointerEnter={() => setHover(i)}
-                  style={{ cursor: "crosshair" }}
-                >
+        {buckets.map((b, i) => {
+          let acc = 0;
+          const segs = segsFor(b);
+          return (
+            <g
+              key={b.startMs}
+              onPointerEnter={() => setHover(i)}
+              style={{ cursor: "crosshair" }}
+            >
+              <rect
+                x={padL + i * bw}
+                y={0}
+                width={bw}
+                height={H}
+                fill="transparent"
+              />
+              {segs.map((s) => {
+                const y1 = yScale(acc + s.value);
+                const y2 = yScale(acc);
+                acc += s.value;
+                return (
                   <rect
-                    x={padL + i * bw}
-                    y={0}
-                    width={bw}
-                    height={H}
-                    fill="transparent"
+                    key={s.key}
+                    x={padL + i * bw + bw * 0.14}
+                    y={y1}
+                    width={bw * 0.72}
+                    height={Math.max(0, y2 - y1)}
+                    fill={s.color}
+                    opacity={hover === null || hover === i ? 0.94 : 0.45}
+                    rx={Math.min(2, bw * 0.2)}
+                    style={{ transition: "opacity 160ms ease" }}
                   />
-                  {STACK_SERIES.map((s) => {
-                    const v = s.extract(b.agg);
-                    if (v <= 0) return null;
-                    const y1 = yScale(acc + v);
-                    const y2 = yScale(acc);
-                    acc += v;
-                    return (
-                      <rect
-                        key={s.key}
-                        x={padL + i * bw + bw * 0.14}
-                        y={y1}
-                        width={bw * 0.72}
-                        height={Math.max(0, y2 - y1)}
-                        fill={s.color}
-                        opacity={hover === null || hover === i ? 0.94 : 0.45}
-                        rx={Math.min(2, bw * 0.2)}
-                        style={{ transition: "opacity 160ms ease" }}
-                      />
-                    );
-                  })}
-                </g>
-              );
-            })
-          : visible.map((m, mi) => {
-              const pts = buckets
-                .map((b, i) => {
-                  const v = b.byModel[m] ? totalTokens(b.byModel[m]) : 0;
-                  return `${padL + i * bw + bw / 2},${yScale(v)}`;
-                })
-                .join(" ");
-              return (
-                <polyline
-                  key={m}
-                  points={pts}
-                  fill="none"
-                  stroke={MODEL_COLORS[modelNames.indexOf(m) % MODEL_COLORS.length]}
-                  strokeWidth={mi === 0 ? 2 : 1.7}
-                  strokeLinejoin="round"
-                  opacity={0.9}
-                />
-              );
-            })}
+                );
+              })}
+            </g>
+          );
+        })}
         {/* x labels (sparse) */}
         {buckets.map((b, i) => {
           const every = Math.ceil(buckets.length / 8);
@@ -236,7 +318,7 @@ export function TrendChart({
             x1={padL + hover * bw + bw / 2}
             x2={padL + hover * bw + bw / 2}
             y1={0}
-            y2={plotH}
+            y2={plotH + padT}
             stroke="var(--zup-blue-500)"
             strokeOpacity="0.35"
           />

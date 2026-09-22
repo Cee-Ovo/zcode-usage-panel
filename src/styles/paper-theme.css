@@ -347,3 +347,147 @@
 :root .zup-frame .zup-nav .footnote {
   border-top: 1px solid var(--paper-line);
 }
+
+/* ---- 7. K3 图表布局:趋势头(维度切换 + 右上图例)与模型排行渐变条 ------- */
+
+/* 维度切换(按模型/按类型):K3 黑白药丸 segmented */
+.trend-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.trend-mode {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--paper-muted);
+  border: 1px solid var(--paper-line);
+  border-radius: 999px;
+}
+
+.trend-mode button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--paper-ink-2);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 13px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all var(--zup-motion-control) var(--zup-ease-out);
+  white-space: nowrap;
+}
+
+.trend-mode button:hover { color: var(--paper-ink); }
+
+.trend-mode button.on {
+  color: var(--paper-page);
+  background: var(--paper-ink);
+}
+
+.trend-legend {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+/* 图例里不可点击的项(按类型系列/其他)不给手型 */
+.trend-legend span.model-chip {
+  cursor: default;
+}
+
+/* 模型排行:名称列 + 渐变条 + 条端数值 */
+.rank-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.rank-row {
+  padding: 9px 8px;
+  border-radius: 10px;
+  transition: background var(--zup-motion-fast) var(--zup-ease-out);
+}
+
+.rank-row--link { cursor: pointer; }
+
+.rank-row--link:hover {
+  background: color-mix(in srgb, var(--zup-blue-500) 4%, transparent);
+}
+
+.rank-row + .rank-row {
+  border-top: 1px solid var(--paper-line);
+}
+
+.rank-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rank-name {
+  flex: none;
+  width: 148px;
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rank-track {
+  position: relative;
+  flex: 1;
+  height: 16px;
+  min-width: 0;
+}
+
+.rank-fill {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3a5bec, #6fc3d8);
+  transition: width var(--zup-motion-surface) var(--zup-ease-out);
+}
+
+.rank-value {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  left: calc(var(--rank-pct, 50%) + 8px);
+  font-size: 11.5px;
+  color: var(--paper-ink-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.rank-sub {
+  margin-top: 3px;
+  padding-left: 158px;
+  font-size: 10.5px;
+  color: var(--paper-ink-3);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rank-sub .num-link {
+  border: 0;
+  background: none;
+  font: inherit;
+  padding: 0;
+  color: var(--zup-blue-600);
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .rank-name { width: 108px; }
+  .rank-sub { padding-left: 118px; }
+}

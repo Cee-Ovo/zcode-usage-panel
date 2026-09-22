@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence } from "motion/react";
 import { Glass } from "open-glass-ui";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { CostDetailModal } from "./CostDetailModal";
 import { MetricCard, InfoDot, SpeedTrendLine } from "./MetricCard";
 import { TrendChart } from "./TrendChart";
+import { RankBarRow } from "./ModelRankBars";
 import { FxButton } from "./fx";
 import { api, onEvent } from "../lib/ipc";
-import { listItemVariants, rowGestures, softSpring } from "../lib/motion";
 import { useStore } from "../lib/store";
 import type { ModelCost, ModelRow, SpeedStats, SpeedWindowStats, UsageViewDto } from "../lib/types";
 import { cacheHitRate, totalTokens } from "../lib/types";
@@ -288,17 +288,6 @@ export function LocalSourceSection({
             )}
           </span>
         </div>
-        <div className="model-row model-head">
-          <span>模型</span>
-          <span style={{ textAlign: "right" }}>总 Token</span>
-          <span style={{ textAlign: "right" }}>占比</span>
-          <span style={{ textAlign: "right" }}>Input</span>
-          <span style={{ textAlign: "right" }}>Output</span>
-          <span style={{ textAlign: "right" }}>Reasoning</span>
-          <span style={{ textAlign: "right" }}>Cached In</span>
-          <span style={{ textAlign: "right" }}>命中率 / 请求</span>
-          <span style={{ textAlign: "right" }}>API 花费</span>
-        </div>
         {loading && !dash && <div className="empty-state">正在加载本地用量…</div>}
         {failed && !dash && (
           <div className="empty-state" role="alert">
@@ -308,17 +297,19 @@ export function LocalSourceSection({
         {dash && models.length === 0 && (
           <div className="empty-state">该时间范围内没有模型调用</div>
         )}
-        <AnimatePresence initial={false}>
-          {models.map((m) => (
-            <LocalModelLine
-              key={m.name}
-              row={m}
-              cost={costByModel.get(m.name)}
-              modelSource={modelSource}
-              onCostClick={() => setCostModalModel(m.name)}
-            />
-          ))}
-        </AnimatePresence>
+        <div className="rank-list">
+          <AnimatePresence initial={false}>
+            {models.map((m) => (
+              <LocalModelLine
+                key={m.name}
+                row={m}
+                cost={costByModel.get(m.name)}
+                modelSource={modelSource}
+                onCostClick={() => setCostModalModel(m.name)}
+              />
+            ))}
+          </AnimatePresence>
+        </div>
       </Glass>
 
       {/* latest session strip */}
@@ -447,7 +438,7 @@ function LocalSpeedCard({
   );
 }
 
-/** 模型排行行:与 ZCode 的 ModelLine 同布局;费用明细按本源数据查询。 */
+/** 模型排行行:K3 渐变条(与 ZCode 的 ModelRankLine 同布局);费用明细按本源数据查询。 */
 function LocalModelLine({
   row,
   cost,
@@ -462,60 +453,21 @@ function LocalModelLine({
   const hit = cacheHitRate(row.agg);
   const displayName = displayModelName(row.name, modelSource);
   return (
-    <motion.div
-      variants={listItemVariants}
-      initial="initial"
-      animate="enter"
-      exit="exit"
-      {...rowGestures}
-      transition={softSpring}
-      className="model-row"
-      title={`${displayName}\n点击右侧金额查看成本明细`}
-    >
-      <div>
-        <div className="name" title={displayName}>{displayName}</div>
-        <div className="share-track">
-          <div className="share-fill" style={{ width: `${Math.round(row.share * 100)}%` }} />
-        </div>
-      </div>
-      <span className="num">{formatTokens(totalTokens(row.agg))}</span>
-      <span className="num">{(row.share * 100).toFixed(1)}%</span>
-      <span className="num">{formatTokens(row.agg.input)}</span>
-      <span className="num">{formatTokens(row.agg.output)}</span>
-      <span className="num">
-        {row.agg.reasoning.present > 0 ? formatTokens(row.agg.reasoning.sum) : "—"}
-      </span>
-      <span className="num">
-        {row.agg.cacheRead.present > 0 ? formatTokens(row.agg.cacheRead.sum) : "—"}
-      </span>
-      <span className="num">
-        {hit === null ? "—" : `${(hit * 100).toFixed(0)}% · ${formatFull(row.agg.requests)}`}
-      </span>
-      <span
-        className="num"
-        title="点击查看成本明细"
-        role="button"
-        tabIndex={0}
-        aria-label={`${displayName} 成本明细`}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault(); onCostClick();
-          }
-        }}
-        onClick={(e) => {
-          e.stopPropagation();
-          onCostClick();
-        }}
-        style={{ cursor: "pointer", color: "var(--zup-blue-600)" }}
-      >
-        {cost?.priced ? (
-          <>≈ {formatCny(cost.costCny)}</>
-        ) : (
-          <span className="cost-unknown" title="没有官方价格,可在设置中手动覆盖">
-            价格未知
-          </span>
-        )}
-      </span>
-    </motion.div>
+    <RankBarRow
+      label={displayName}
+      labelTitle={displayName}
+      total={formatTokens(totalTokens(row.agg))}
+      pct={row.share}
+      activateTitle={`${displayName}\n点击查看本源用量明细`}
+      onActivate={() => onCostClick()}
+      sub={
+        <>
+          {`占比 ${(row.share * 100).toFixed(1)}% · In ${formatTokens(row.agg.input)} · Out ${formatTokens(row.agg.output)}`}
+          {row.agg.reasoning.present > 0 && ` · Reason ${formatTokens(row.agg.reasoning.sum)}`}
+          {row.agg.cacheRead.present > 0 && ` · Cache ${formatTokens(row.agg.cacheRead.sum)}`}
+          {` · ${hit === null ? "命中率 —" : `命中 ${(hit * 100).toFixed(0)}%`} / ${formatFull(row.agg.requests)} 次`}
+        </>
+      }
+    />
   );
 }

@@ -7,9 +7,10 @@ import { LocalSourceSection } from "../components/LocalSourceSection";
 import { CostDetailModal } from "../components/CostDetailModal";
 import { MetricCard, InfoDot, SpeedTrendLine } from "../components/MetricCard";
 import { TrendChart } from "../components/TrendChart";
+import { RankBarRow } from "../components/ModelRankBars";
 import { FxButton, useAction } from "../components/fx";
 import { api } from "../lib/ipc";
-import { listItemVariants, rowGestures, softSpring, staggerContainer } from "../lib/motion";
+import { staggerContainer } from "../lib/motion";
 import { store, useStore } from "../lib/store";
 import { modelDetailGate } from "../lib/modelDetail";
 import type { ModelCost, ModelRow, SpeedStats, SpeedWindowStats } from "../lib/types";
@@ -409,30 +410,21 @@ const ZCodeSection = memo(function ZCodeSection({ compact }: { compact: boolean 
             )}
           </span>
         </div>
-        <div className="model-row model-head">
-          <span>模型</span>
-          <span style={{ textAlign: "right" }}>总 Token</span>
-          <span style={{ textAlign: "right" }}>占比</span>
-          <span style={{ textAlign: "right" }}>Input</span>
-          <span style={{ textAlign: "right" }}>Output</span>
-          <span style={{ textAlign: "right" }}>Reasoning</span>
-          <span style={{ textAlign: "right" }}>Cached In</span>
-          <span style={{ textAlign: "right" }}>命中率 / 请求</span>
-          <span style={{ textAlign: "right" }}>API 花费</span>
-        </div>
         {models.length === 0 && (
           <div className="empty-state">该时间范围内没有模型调用</div>
         )}
-        <AnimatePresence initial={false}>
-          {models.map((m) => (
-            <ModelLine
-              key={m.name}
-              row={m}
-              cost={costByModel.get(m.name)}
-              onCostClick={() => setCostModalModel(m.name)}
-            />
-          ))}
-        </AnimatePresence>
+        <div className="rank-list">
+          <AnimatePresence initial={false}>
+            {models.map((m) => (
+              <ModelRankLine
+                key={m.name}
+                row={m}
+                cost={costByModel.get(m.name)}
+                onCostClick={() => setCostModalModel(m.name)}
+              />
+            ))}
+          </AnimatePresence>
+        </div>
       </Glass>
 
       {/* live session strip */}
@@ -539,7 +531,7 @@ function SpeedCard({
   );
 }
 
-function ModelLine({
+function ModelRankLine({
   row,
   cost,
   onCostClick,
@@ -549,73 +541,49 @@ function ModelLine({
   onCostClick: () => void;
 }) {
   const hit = cacheHitRate(row.agg);
+  const activate = () => {
+    store.set({ page: "models" });
+    // 序号保护:过期响应不会覆盖新选的模型,也不会重开已关闭的弹窗。
+    modelDetailGate.open(() => api.modelDetail(row.name));
+  };
   return (
-    <motion.div
-      variants={listItemVariants}
-      initial="initial"
-      animate="enter"
-      exit="exit"
-      {...rowGestures}
-      transition={softSpring}
-      className="model-row"
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
-          e.preventDefault(); e.currentTarget.click();
-        }
-      }}
-      onClick={() => {
-        store.set({ page: "models" });
-        // 序号保护:过期响应不会覆盖新选的模型,也不会重开已关闭的弹窗。
-        modelDetailGate.open(() => api.modelDetail(row.name));
-      }}
-      title="点击查看模型详情"
-    >
-      <div>
-        <div className="name">{row.name}</div>
-        <div className="share-track">
-          <div className="share-fill" style={{ width: `${Math.round(row.share * 100)}%` }} />
-        </div>
-      </div>
-      <span className="num">{formatTokens(totalTokens(row.agg))}</span>
-      <span className="num">{(row.share * 100).toFixed(1)}%</span>
-      <span className="num">{formatTokens(row.agg.input)}</span>
-      <span className="num">{formatTokens(row.agg.output)}</span>
-      <span className="num">
-        {row.agg.reasoning.present > 0 ? formatTokens(row.agg.reasoning.sum) : "—"}
-      </span>
-      <span className="num">
-        {row.agg.cacheRead.present > 0 ? formatTokens(row.agg.cacheRead.sum) : "—"}
-      </span>
-      <span className="num">
-        {hit === null ? "—" : `${(hit * 100).toFixed(0)}% · ${formatFull(row.agg.requests)}`}
-      </span>
-      <span
-        className="num"
-        title="点击查看成本明细"
-        role="button"
-        tabIndex={0}
-        aria-label={`${row.name} 成本明细`}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault(); e.stopPropagation(); onCostClick();
-          }
-        }}
-        onClick={(e) => {
-          e.stopPropagation();
-          onCostClick();
-        }}
-        style={{ cursor: "pointer", color: "var(--zup-blue-600)" }}
-      >
-        {cost?.priced ? (
-          <>≈ {formatCny(cost.costCny)}</>
-        ) : (
-          <span className="cost-unknown" title="没有官方价格,可在设置中手动覆盖">
-            价格未知
-          </span>
-        )}
-      </span>
-    </motion.div>
+    <RankBarRow
+      label={row.name}
+      total={formatTokens(totalTokens(row.agg))}
+      pct={row.share}
+      activateTitle="点击查看模型详情"
+      onActivate={activate}
+      sub={
+        <>
+          {`占比 ${(row.share * 100).toFixed(1)}% · In ${formatTokens(row.agg.input)} · Out ${formatTokens(row.agg.output)}`}
+          {row.agg.reasoning.present > 0 && ` · Reason ${formatTokens(row.agg.reasoning.sum)}`}
+          {row.agg.cacheRead.present > 0 && ` · Cache ${formatTokens(row.agg.cacheRead.sum)}`}
+          {` · ${hit === null ? "命中率 —" : `命中 ${(hit * 100).toFixed(0)}%`} / ${formatFull(row.agg.requests)} 次`}
+          {" · "}
+          {cost?.priced ? (
+            <button
+              type="button"
+              className="num-link"
+              title="点击查看成本明细"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault(); e.stopPropagation(); onCostClick();
+                }
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onCostClick();
+              }}
+            >
+              ≈ {formatCny(cost.costCny)}
+            </button>
+          ) : (
+            <span className="cost-unknown" title="没有官方价格,可在设置中手动覆盖">
+              价格未知
+            </span>
+          )}
+        </>
+      }
+    />
   );
 }

@@ -106,6 +106,22 @@
   --refine-line: var(--paper-line);
 }
 
+/* 纸感下彻底关掉环境光:蓝紫 wash(frosted-sample 静态渐变)与
+   liquid-ambient 三个光球都是玻璃语言,点阵纸面才是唯一背景。 */
+:root .zup-shell.frosted-sample {
+  background: var(--paper-page) !important;
+}
+:root[data-theme="dark"] .zup-shell.frosted-sample {
+  background: var(--paper-page) !important;
+}
+.zup-frame .liquid-ambient {
+  display: none !important;
+}
+/* 光球动画等残余平面也一并静默(liquid-surfaces/theme 里的装饰层)。 */
+.zup-frame .liquid-ambient * {
+  display: none !important;
+}
+
 /* ---- 2. 点阵背景（K3 标志性，边缘淡出） --------------------------------- */
 
 .zup-shell.zup-frame::before {

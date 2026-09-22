@@ -1,9 +1,18 @@
-/* Tray popup window styles — compact glass card. */
+/* Tray popup window styles — paper (K3) minimal card.
+   与主窗口同一套纸感语言:纸白底 + 细线边框 + 墨色文字 + 墨色占比条。
+   令牌来自 styles/paper-theme.css(已在 main.tsx 里加载)。 */
 
 body,
 html,
 #root {
   height: 100%;
+}
+
+/* 弹窗窗口本身不是透明窗口(decorations(false) 但无 transparent),
+   卡片圆角外露的就是 body 底色 —— 设成纸感页面色,明暗两套都与卡片自然衔接。 */
+body {
+  background: var(--paper-page, #fafaf8);
+  color: var(--paper-ink, #1c1c1e);
 }
 
 .popup-card {
@@ -12,21 +21,11 @@ html,
   flex-direction: column;
   padding: 16px 16px 12px;
   border-radius: 16px;
-  background:
-    radial-gradient(600px 300px at -10% -20%, rgba(127, 181, 242, 0.25), transparent 60%),
-    radial-gradient(500px 300px at 110% 120%, rgba(53, 197, 232, 0.18), transparent 60%),
-    color-mix(in srgb, #ffffff 78%, transparent);
-  backdrop-filter: blur(26px) saturate(1.4);
-  -webkit-backdrop-filter: blur(26px) saturate(1.4);
-  border: 1px solid color-mix(in srgb, #ffffff 70%, rgba(47, 123, 246, 0.12));
-  box-shadow: 0 24px 60px -22px rgba(16, 35, 60, 0.4);
-}
-
-:root[data-theme="dark"] .popup-card {
-  background:
-    radial-gradient(600px 300px at -10% -20%, rgba(47, 123, 246, 0.2), transparent 60%),
-    color-mix(in srgb, #101a2c 82%, transparent);
-  border-color: rgba(255, 255, 255, 0.1);
+  background: var(--paper-card, #ffffff);
+  border: 1px solid var(--paper-line, rgba(28, 28, 30, 0.08));
+  box-shadow:
+    0 18px 44px -18px rgba(28, 28, 30, 0.28),
+    0 1px 2px rgba(28, 28, 30, 0.05);
 }
 
 .popup-head {
@@ -37,7 +36,7 @@ html,
 
 .popup-title {
   font-size: 11px;
-  color: var(--zup-text-3);
+  color: var(--paper-ink-3, #9a9aa0);
   font-weight: 600;
   letter-spacing: 0.06em;
 }
@@ -48,29 +47,18 @@ html,
   letter-spacing: -0.02em;
   margin-top: 6px;
   font-variant-numeric: tabular-nums;
-  background: linear-gradient(120deg, #1f66e0, #35c5e8);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-:root[data-theme="dark"] .popup-total {
-  /* 深色下起止色整体提亮,避免 #1f66e0 沉进海军蓝底。 */
-  background: linear-gradient(120deg, #7fb3ff, #35c5e8);
-  -webkit-background-clip: text;
-  background-clip: text;
+  color: var(--paper-ink, #1c1c1e);
 }
 
 .popup-total small {
   font-size: 13px;
   font-weight: 500;
-  color: var(--zup-text-3);
-  -webkit-text-fill-color: var(--zup-text-3);
+  color: var(--paper-ink-3, #9a9aa0);
 }
 
 .popup-sub {
   font-size: 10.5px;
-  color: var(--zup-text-3);
+  color: var(--paper-ink-3, #9a9aa0);
   margin-bottom: 10px;
 }
 
@@ -84,15 +72,16 @@ html,
 }
 
 .popup-model:hover {
-  background: color-mix(in srgb, var(--zup-blue-500) 8%, transparent);
+  background: var(--paper-muted, #f4f4f2);
 }
 
+/* 名次药丸:K3 的黑白药丸语言(浅底墨字) */
 .popup-model .rank {
   width: 18px;
   height: 18px;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--zup-blue-500) 16%, transparent);
-  color: var(--zup-blue-600);
+  background: var(--paper-muted, #f4f4f2);
+  color: var(--paper-ink-2, #57575e);
   font-size: 11px;
   font-weight: 700;
   display: flex;
@@ -104,9 +93,20 @@ html,
 .popup-model .m-name {
   font-size: 12px;
   font-weight: 600;
+  color: var(--paper-ink, #1c1c1e);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 占比条与主窗口口径一致:墨色细条 */
+.popup-card .share-track {
+  background: var(--paper-muted, #f4f4f2);
+}
+
+.popup-card .share-fill {
+  background: var(--paper-ink, #1c1c1e);
+  opacity: 0.9;
 }
 
 .popup-foot {
@@ -114,9 +114,9 @@ html,
   justify-content: space-between;
   margin-top: auto;
   padding-top: 10px;
-  border-top: 1px solid color-mix(in srgb, var(--zup-text-3) 18%, transparent);
+  border-top: 1px solid var(--paper-line, rgba(28, 28, 30, 0.08));
   font-size: 11px;
-  color: var(--zup-text-2);
+  color: var(--paper-ink-2, #57575e);
 }
 
 .popup-foot + .popup-foot {
@@ -128,11 +128,11 @@ html,
 /* ---- footer ---- */
 
 .popup-foot .healthy {
-  color: var(--zup-ok);
+  color: var(--paper-ok, #2e9e7b);
   font-weight: 600;
 }
 
 .popup-foot .degraded-text {
-  color: var(--zup-warn);
+  color: var(--paper-warn, #c28a1f);
   font-weight: 600;
 }

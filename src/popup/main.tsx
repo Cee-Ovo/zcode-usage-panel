@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "open-glass-ui/styles.css";
 import "../styles/theme.css";
 import "../styles/global.css";
+import "../styles/paper-theme.css";
 import "./popup.css";
 import { api, onEvent } from "../lib/ipc";
 import type { DashboardDto, UsageUpdateEvent } from "../lib/types";

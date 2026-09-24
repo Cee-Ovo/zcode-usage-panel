@@ -13,8 +13,8 @@ const fs = require('fs');
 const path = require('path');
 
 const outDir = process.argv[2] || 'docs/screenshots';
-const W = 1000;
-const H = 1040;
+const W = 996;
+const H = 709;
 
 (async () => {
   fs.mkdirSync(outDir, { recursive: true });
@@ -24,7 +24,8 @@ const H = 1040;
   if (!page) throw new Error('找不到主窗口页面');
   await page.bringToFront().catch(() => {});
 
-  // 渲染高度放大到一屏装下内容(窗口本身可自由缩放,这是合法尺寸)
+  // 取景 = 默认窗口尺寸(996x709),不额外拉高:README 只要首屏这一屏,
+  // 再往下露出的趋势图不是这张图要展示的东西。
   const cdp = await ctx.newCDPSession(page);
   await cdp.send('Emulation.setDeviceMetricsOverride', {
     width: W, height: H, deviceScaleFactor: 2, mobile: false,

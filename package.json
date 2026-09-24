@@ -2,7 +2,7 @@
   "name": "zcode-usage-panel",
   "private": true,
   "version": "1.4.5",
-  "description": "Windows AI coding usage dashboard: ZCode tokens, Codex / Antigravity / Volcengine quotas, tray, edge-docking.",
+  "description": "Windows AI coding usage dashboard: ZCode / Codex / Claude Code / DSH tokens, speed and estimated cost, tray, edge-docking.",
   "type": "module",
   "scripts": {
     "predev": "node scripts/ensure-icons.mjs",

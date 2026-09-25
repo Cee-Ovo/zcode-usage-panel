@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated_at": "2026-09-21",
+  "updated_at": "2026-09-25",
   "entries": [
     {
       "provider": "zai",
@@ -578,6 +578,48 @@
           "promo": null,
           "notes": [
             "标准档价格（官方页 Standard 表格，2026-09-11 核对）",
+            "cached input 为包含式口径（input 已含命中部分）"
+          ]
+        },
+        {
+          "model": "gpt-6-sol",
+          "currency": "USD",
+          "pricing": {
+            "type": "flat",
+            "input_per_m": 2.0,
+            "cache_hit_per_m": 0.2,
+            "cache_write_per_m": 2.5,
+            "cache_storage_per_m": null,
+            "output_per_m": 10.0
+          },
+          "reasoning_policy": "included_in_output",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-25",
+          "promo": null,
+          "notes": [
+            "标准档价格（官方页 Standard 表格，2026-09-25 核对）",
+            "发布价：输入/输出为 GPT-5.6 Sol 的 50%（$4/$20 → $2/$10，官方发布页）",
+            "cached input 为包含式口径（input 已含命中部分）"
+          ]
+        },
+        {
+          "model": "gpt-6-luna",
+          "currency": "USD",
+          "pricing": {
+            "type": "flat",
+            "input_per_m": 0.1,
+            "cache_hit_per_m": 0.01,
+            "cache_write_per_m": 0.125,
+            "cache_storage_per_m": null,
+            "output_per_m": 0.5
+          },
+          "reasoning_policy": "included_in_output",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-25",
+          "promo": null,
+          "notes": [
+            "标准档价格（官方页 Standard 表格，2026-09-25 核对）",
+            "发布价：$0.20/$1.20 → $0.10/$0.50（官方发布页）",
             "cached input 为包含式口径（input 已含命中部分）"
           ]
         },

@@ -1521,6 +1521,9 @@ mod tests {
         // 别名型漏价：Codex 侧同一模型的名字 / 横杠写法（2026-09-21 补齐）。
         assert!(find_entry(&t, "codex-auto-review").is_some());
         assert!(find_entry(&t, "claude-fable-5-1").is_some());
+        // 2026-09-25 官方页核对后新增（GPT-6 发布，此前价格未知）。
+        assert!(models.contains(&"gpt-6-sol"));
+        assert!(models.contains(&"gpt-6-luna"));
         // 带供应商前缀的同一型号按别名匹配（本地日志里的原始写法）。
         assert!(find_entry(&t, "z-ai/glm-5.2").is_some());
         assert!(find_entry(&t, "minimaxai/minimax-m3").is_some());
